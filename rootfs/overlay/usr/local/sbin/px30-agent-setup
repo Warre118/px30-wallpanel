@@ -51,7 +51,7 @@ def ask(prompt, default=""):
 
 
 def yesno(prompt, default):
-    v = input(f'{prompt} [{"J/n" if default else "j/N"}]: ').strip().lower()
+    v = input(f'{prompt} [{"Y/n" if default else "y/N"}]: ').strip().lower()
     return default if not v else v in ("j", "ja", "y", "yes")
 
 
@@ -60,7 +60,7 @@ def test(m):
     try:
         import paho.mqtt.client as mqtt
     except ImportError:
-        return False, "python3-paho-mqtt ontbreekt"
+        return False, "python3-paho-mqtt is missing"
     try:
         c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="px30-agent-setup")
     except AttributeError:          # paho < 2
@@ -80,17 +80,17 @@ def test(m):
     try:
         c.connect(m["host"], int(m["port"]), 10)
     except Exception as e:  # DNS, refused, TLS handshake ...
-        return False, f"verbinden mislukt: {e}"
+        return False, f"connecting failed: {e}"
     c.loop_start()
     done.wait(10)
     c.loop_stop()
     c.disconnect()
     rc = res.get("rc")
     if rc is None:
-        return False, "geen antwoord van de broker binnen 10 s"
+        return False, "no answer from the broker within 10 s"
     if getattr(rc, "is_failure", rc != 0):
-        return False, f"broker weigert: {rc} (gebruikersnaam/wachtwoord?)"
-    return True, "verbinding OK"
+        return False, f"broker refuses: {rc} (username/password?)"
+    return True, "connection OK"
 
 
 def restart_agent(enable):
@@ -104,37 +104,37 @@ def restart_agent(enable):
 def show(cfg):
     m = cfg.get("mqtt", {})
     if not m.get("host"):
-        print("Geen MQTT-broker ingesteld. Het panel werkt als kiosk; beheer via SSH.")
+        print("No MQTT broker configured. The panel works as a kiosk; manage it via SSH.")
         return
-    print(f'broker:   {m["host"]}:{m.get("port", 1883)}  TLS: {"ja" if m.get("tls") else "nee"}'
-          f'{" (certificaat NIET gecontroleerd)" if m.get("tls_insecure") else ""}')
+    print(f'broker:   {m["host"]}:{m.get("port", 1883)}  TLS: {"yes" if m.get("tls") else "no"}'
+          f'{" (certificate NOT checked)" if m.get("tls_insecure") else ""}')
     print(f'login:    {m.get("username") or "-"} / {SECRET if m.get("password") else "-"}')
     if m.get("ca_file"):
         print(f'CA:       {m["ca_file"]}')
-    print(f'naam:     {cfg.get("device_name") or "(standaard: PX30 <hostnaam>)"}')
+    print(f'name:     {cfg.get("device_name") or "(default: PX30 <hostname>)"}')
 
 
 def interactive(cfg):
     m = dict(cfg.get("mqtt", {}))
     print(__doc__.split("\n\n")[0])
-    print("Leeg laten = waarde tussen [] behouden.\n")
-    m["host"] = ask("MQTT-broker (IP of naam)", m.get("host") or DEFAULT_HOST)
-    m["tls"] = yesno("TLS gebruiken (versleuteld, meestal poort 8883)?", bool(m.get("tls")))
-    m["port"] = int(ask("Poort", str(m.get("port") or (8883 if m["tls"] else 1883))))
+    print("Leave empty = keep the value in [].\n")
+    m["host"] = ask("MQTT broker (IP or name)", m.get("host") or DEFAULT_HOST)
+    m["tls"] = yesno("Use TLS (encrypted, usually port 8883)?", bool(m.get("tls")))
+    m["port"] = int(ask("Port", str(m.get("port") or (8883 if m["tls"] else 1883))))
     if m["tls"]:
-        m["ca_file"] = ask("CA-certificaat (pad, leeg = systeem-CA's)", m.get("ca_file", ""))
-        m["tls_insecure"] = yesno("Certificaat NIET controleren (enkel voor testen)?",
+        m["ca_file"] = ask("CA certificate (path, empty = system CAs)", m.get("ca_file", ""))
+        m["tls_insecure"] = yesno("Do NOT check the certificate (testing only)?",
                                   bool(m.get("tls_insecure")))
     else:
         m["ca_file"], m["tls_insecure"] = "", False
-    m["username"] = ask("Gebruikersnaam (leeg = geen)", m.get("username", ""))
+    m["username"] = ask("Username (empty = none)", m.get("username", ""))
     if m["username"]:
-        pw = getpass.getpass("Wachtwoord (leeg = huidige behouden): ")
+        pw = getpass.getpass("Password (empty = keep the current one): ")
         if pw:
             m["password"] = pw
     else:
         m["password"] = ""
-    cfg["device_name"] = ask("Naam in Home Assistant", cfg.get("device_name") or "")
+    cfg["device_name"] = ask("Name in Home Assistant", cfg.get("device_name") or "")
     return m
 
 
@@ -158,10 +158,10 @@ def main():
         cfg.pop("mqtt", None)
         save(cfg)
         restart_agent(False)
-        print("MQTT uitgeschakeld; beheer via SSH (ssh admin@<ip>).")
+        print("MQTT disabled; manage the panel via SSH (ssh admin@<ip>).")
         return 0
     if a.test:
-        ok, msg = test(cfg.get("mqtt", {})) if cfg.get("mqtt", {}).get("host") else (False, "niets ingesteld")
+        ok, msg = test(cfg.get("mqtt", {})) if cfg.get("mqtt", {}).get("host") else (False, "nothing configured")
         print(msg)
         return 0 if ok else 1
 
@@ -175,7 +175,7 @@ def main():
             cfg["device_name"] = a.name
     else:
         if not sys.stdin.isatty():
-            print("geen terminal: gebruik --host ... (zie --help)", file=sys.stderr)
+            print("no terminal: use --host ... (see --help)", file=sys.stderr)
             return 2
         m = interactive(cfg)
 
@@ -184,14 +184,14 @@ def main():
         ok, msg = test(m)
         print(msg)
         if not ok:
-            if a.host or not yesno("Toch opslaan?", False):
-                print("Niet opgeslagen. Het panel blijft bereikbaar via SSH (ssh admin@<ip>).")
+            if a.host or not yesno("Save anyway?", False):
+                print("Not saved. The panel stays reachable via SSH (ssh admin@<ip>).")
                 return 1
     cfg["mqtt"] = m
     save(cfg)
     restart_agent(True)
-    print(f"Opgeslagen in {CONFIG}; px30-agent herstart. In Home Assistant verschijnt het "
-          "panel onder Instellingen > Apparaten > MQTT.")
+    print(f"Saved in {CONFIG}; px30-agent restarted. In Home Assistant the panel "
+          "appears under Settings > Devices > MQTT.")
     return 0
 
 

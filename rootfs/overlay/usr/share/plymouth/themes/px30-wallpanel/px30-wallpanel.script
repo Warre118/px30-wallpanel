@@ -1,7 +1,7 @@
-# Opstartanimatie van het Smatek PX30-wallpanel (uit Android bootanimation.zip).
-# Originele grootte (240x240, gecentreerd, zoals Android). intro.png 0,3 s, daarna f0..f264 in een lus aan 20 fps.
-# Plymouth roept de refresh-functie 50x per seconde op. Beelden worden pas
-# geladen als ze aan de beurt zijn (alles vooraf laden = ~240 MB RAM).
+# Boot animation of the Smatek PX30 wall panel (from Android's bootanimation.zip).
+# Original size (240x240, centred, like Android). intro.png 0.3 s, then f0..f264 in a loop at 20 fps.
+# Plymouth calls the refresh function 50x per second. Frames are only loaded
+# when their turn comes (preloading everything = ~240 MB RAM).
 
 Window.SetBackgroundTopColor(0, 0, 0);
 Window.SetBackgroundBottomColor(0, 0, 0);

@@ -43,19 +43,18 @@ CHANNELS = ("stable", "latest")
 SERVICE = {"thread": "otbr-agent.service", "zigbee": "px30-zigbee-bridge.service"}
 
 WARN_STACK = """
-  !!! LET OP: STACKWISSEL {old} -> {new} !!!
-  Het {old_net}-netwerk op deze module gaat VERLOREN. Alle apparaten moeten
-  opnieuw gekoppeld worden aan {new}. Dit kan niet ongedaan gemaakt worden
-  door terug te wisselen.
+  !!! WARNING: STACK SWITCH {old} -> {new} !!!
+  The {old_net} network on this module will be LOST. Every device must be
+  paired again with {new}. Switching back does not undo this.
 """
 WARN_VERSION = """
-  !!! LET OP: {kind} {stack} {old} -> {new} !!!
-  Er is een risico dat het netwerk verloren gaat (bv. als de nieuwe firmware
-  de opgeslagen netwerkgegevens niet overneemt). {backup}
+  !!! WARNING: {kind} {stack} {old} -> {new} !!!
+  The network may be lost (e.g. if the new firmware does not take over the
+  stored network data). {backup}
 """
 BACKUP_HINT = {
-    "thread": "De actieve Thread-dataset wordt eerst bewaard in /data/radio/backup.",
-    "zigbee": "Maak EERST een back-up in ZHA (Instellingen > Zigbee > Back-up) of Zigbee2MQTT.",
+    "thread": "The active Thread dataset is saved to /data/radio/backup first.",
+    "zigbee": "Make a backup in ZHA (Settings > Zigbee > Backup) or Zigbee2MQTT FIRST.",
 }
 
 
@@ -142,13 +141,13 @@ def cmd_status(js):
     if js:
         print(json.dumps(s))
         return
-    print(f'stack:   {s["stack"]}{" (geschat)" if s.get("guessed") else ""}')
-    print(f'versie:  {s.get("version") or "onbekend"}  kanaal: {s.get("channel") or "-"}')
-    print(f'geflasht: {s.get("flashed") or "-"}')
+    print(f'stack:   {s["stack"]}{" (guessed)" if s.get("guessed") else ""}')
+    print(f'version: {s.get("version") or "unknown"}  channel: {s.get("channel") or "-"}')
+    print(f'flashed: {s.get("flashed") or "-"}')
     for u, a in s["services"].items():
-        print(f'{u}: {"actief" if a else "uit"}')
+        print(f'{u}: {"active" if a else "off"}')
     if s["stack"] == "zigbee":
-        print(f'ZHA/Z2M: socket://<panel>:{conf()["ZIGBEE_PORT"]} (luistert op {s["zigbee_listen"]})')
+        print(f'ZHA/Z2M: socket://<panel>:{conf()["ZIGBEE_PORT"]} (listening on {s["zigbee_listen"]})')
 
 
 def cmd_list(js):
@@ -161,35 +160,35 @@ def cmd_list(js):
         here = os.path.exists(e["path"])
         mark = "*" if (e["stack"] == cur["stack"] and e.get("version") == cur.get("version")) else " "
         print(f'{mark} {e["stack"]:7} {e["channel"]:7} {e.get("version", "?"):24} '
-              f'{"" if here else "(niet gedownload) "}{e.get("description", "")}')
+              f'{"" if here else "(not downloaded) "}{e.get("description", "")}')
 
 
 def thread_backup():
     if not active("otbr-agent.service"):
-        print("  (otbr-agent draait niet: geen Thread-dataset te bewaren)")
+        print("  (otbr-agent is not running: no Thread dataset to save)")
         return None
     r = subprocess.run(["/usr/sbin/ot-ctl", "dataset", "active", "-x"],
                        capture_output=True, text=True, timeout=20)
     lines = [l.strip() for l in r.stdout.splitlines() if l.strip() and l.strip() != "Done"]
     if r.returncode or not lines or not all(c in "0123456789abcdefABCDEF" for c in lines[0]):
-        print("  (geen actieve Thread-dataset)")
+        print("  (no active Thread dataset)")
         return None
     os.makedirs(DATA + "/backup", mode=0o700, exist_ok=True)
     path = f'{DATA}/backup/thread-dataset-{time.strftime("%Y%m%d-%H%M%S")}.hex'
     with open(path, "w") as f:
         f.write(lines[0] + "\n")
     os.chmod(path, 0o600)
-    print(f"  Thread-dataset bewaard: {path}")
-    print(f"  (terugzetten: ot-ctl dataset set active $(cat {path}) && ot-ctl ifconfig up && ot-ctl thread start)")
+    print(f"  Thread dataset saved: {path}")
+    print(f"  (restore: ot-ctl dataset set active $(cat {path}) && ot-ctl ifconfig up && ot-ctl thread start)")
     return path
 
 
 def confirm(word):
     if not sys.stdin.isatty():
-        die("geen bevestiging mogelijk (geen terminal); gebruik --yes", 2)
-    ans = input(f'  Typ "{word}" om door te gaan: ').strip().lower()
+        die("no confirmation possible (no terminal); use --yes", 2)
+    ans = input(f'  Type "{word}" to continue: ').strip().lower()
     if ans != word:
-        die("afgebroken", 2)
+        die("cancelled", 2)
 
 
 def set_services(stack):
@@ -215,18 +214,18 @@ def cmd_apply():
 
 def cmd_switch(stack, channel, yes, force):
     if stack not in STACKS:
-        die(f"stack moet {' of '.join(STACKS)} zijn")
+        die(f"stack must be {' or '.join(STACKS)}")
     if channel not in CHANNELS:
-        die(f"kanaal moet {' of '.join(CHANNELS)} zijn")
+        die(f"channel must be {' or '.join(CHANNELS)}")
     e = catalog().get((stack, channel))
     if not e:
-        die(f"geen firmware voor {stack}/{channel} in de catalogus")
+        die(f"no firmware for {stack}/{channel} in the catalog")
     if not os.path.exists(e["path"]):
-        die(f'{e["path"]} ontbreekt (nog niet gedownload)')
+        die(f'{e["path"]} missing (not downloaded yet)')
     if e.get("sha256") and sha256(e["path"]) != e["sha256"].lower():
-        die(f'checksum van {e["path"]} klopt niet')
+        die(f'checksum of {e["path"]} does not match')
     if not os.access(USF, os.X_OK):
-        die(f"{USF} ontbreekt (universal-silabs-flasher niet in dit image)")
+        die(f"{USF} missing (universal-silabs-flasher is not in this image)")
 
     cur = state()
     old_stack, old_ver, new_ver = cur["stack"], cur.get("version"), e.get("version")
@@ -234,12 +233,12 @@ def cmd_switch(stack, channel, yes, force):
         print(WARN_STACK.format(old=old_stack, new=stack, old_net=old_stack.capitalize()))
         word = stack
     elif old_ver == new_ver and not force and not cur.get("guessed"):
-        die(f"{stack} {new_ver} staat al op de module (--force om opnieuw te flashen)", 2)
+        die(f"{stack} {new_ver} is already on the module (--force to flash again)", 2)
     else:
         kind = "UPDATE" if vkey(new_ver) >= vkey(old_ver) else "DOWNGRADE"
-        print(WARN_VERSION.format(kind=kind, stack=stack, old=old_ver or "onbekend",
+        print(WARN_VERSION.format(kind=kind, stack=stack, old=old_ver or "unknown",
                                   new=new_ver, backup=BACKUP_HINT[stack]))
-        word = "ja"
+        word = "yes"
     if not yes:
         confirm(word)
 
@@ -247,7 +246,7 @@ def cmd_switch(stack, channel, yes, force):
     try:
         fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        die("er loopt al een radio-operatie", 3)
+        die("another radio operation is running", 3)
 
     if old_stack == "thread":
         thread_backup()
@@ -269,18 +268,18 @@ def cmd_switch(stack, channel, yes, force):
     if rc != 0:
         # module state unknown: bring the old stack back up, keep the old state file
         set_services(old_stack)
-        die(f"flashen mislukt (rc {rc}); {old_stack} opnieuw gestart. "
-            "Lukt het niet meer: SWD-herstel, zie BEVINDINGEN 7c.")
+        die(f"flashing failed (rc {rc}); {old_stack} restarted. "
+            "If the module no longer answers: recover it over SWD, see docs/radio.md.")
 
     save(STATE, {"stack": stack, "channel": channel, "version": new_ver,
                  "file": os.path.basename(e["path"]), "sha256": e.get("sha256"),
                  "flashed": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                  "previous": {"stack": old_stack, "version": old_ver}})
     set_services(stack)
-    print(f"klaar: {stack} {new_ver} ({channel})")
+    print(f"done: {stack} {new_ver} ({channel})")
     if stack == "zigbee":
         c = conf()
-        print(f'  ZHA/Z2M: socket://<panel>:{c["ZIGBEE_PORT"]} (luistert nu op {c["ZIGBEE_LISTEN"]})')
+        print(f'  ZHA/Z2M: socket://<panel>:{c["ZIGBEE_PORT"]} (now listening on {c["ZIGBEE_LISTEN"]})')
 
 
 def main(a):
@@ -303,7 +302,7 @@ def main(a):
         pos = [x for x in a[1:] if not x.startswith("--")]
         cmd_switch(pos[0], pos[1] if len(pos) > 1 else "stable", "--yes" in a, "--force" in a)
     else:
-        die("onbekend commando (px30-radio --help)")
+        die("unknown command (px30-radio --help)")
 
 
 if __name__ == "__main__":

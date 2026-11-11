@@ -1,5 +1,5 @@
 [Unit]
-Description=Scherm aan bij nadering (proximity) of touch
+Description=Screen on when someone approaches (proximity) or touches
 After=systemd-udev-settle.service
 
 [Service]

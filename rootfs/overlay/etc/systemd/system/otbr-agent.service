@@ -1,10 +1,10 @@
 [Unit]
 Description=OpenThread Border Router agent (TYZS13-RCP op /dev/ttyThread = UART5)
-# Niet network-online.target: wait-online wacht ook op usb0 (gadget) en hangt dan 2 min.
-# otbr-agent volgt zelf de status van wlan0.
+# Not network-online.target: wait-online also waits for usb0 (gadget) and then hangs 2 min.
+# otbr-agent follows the state of wlan0 itself.
 Wants=avahi-daemon.service
 After=network.target avahi-daemon.service iwd.service dev-ttyThread.device
-# wacht op de udev-symlink (60-px30-serial.rules); stopt mee als hij verdwijnt
+# waits for the udev symlink (60-px30-serial.rules); stops when it disappears
 BindsTo=dev-ttyThread.device
 
 [Service]

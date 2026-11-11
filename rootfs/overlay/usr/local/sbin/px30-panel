@@ -326,7 +326,7 @@ def save_kiosk_url(url):
     try:
         keep = [l for l in open(KIOSK_DATA) if not re.match(r"\s*KIOSK_URL=", l)]
     except OSError:
-        keep = ["# eigen kiosk-instellingen (px30-panel); blijft bewaard bij herinstallatie\n"]
+        keep = ["# own kiosk settings (px30-panel); kept across reinstalls\n"]
     keep.append(f"KIOSK_URL={shlex.quote(url)}\n")
     tmp = KIOSK_DATA + ".tmp"
     with open(tmp, "w") as f:

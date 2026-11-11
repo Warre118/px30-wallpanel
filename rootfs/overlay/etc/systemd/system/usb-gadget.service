@@ -1,5 +1,5 @@
 [Unit]
-Description=USB-netwerk (NCM) op de OTG-poort
+Description=USB network (NCM) on the OTG port
 After=systemd-modules-load.service
 Before=systemd-networkd.service
 

@@ -1,20 +1,20 @@
 #!/bin/sh
-# Start Cog (WPE WebKit) rechtstreeks op KMS/DRM; geen compositor nodig.
+# Starts Cog (WPE WebKit) directly on KMS/DRM; no compositor needed.
 . /etc/kiosk/kiosk.conf
-# eigen instellingen (blijven bewaard bij herinstallatie)
+# own settings (kept across reinstalls)
 [ -r /data/kiosk/kiosk.conf ] && . /data/kiosk/kiosk.conf
-# Let op: Cog kijkt enkel OF deze variabele bestaat -> ook "=0" zet de cursor aan.
+# Note: Cog only checks WHETHER this variable exists -> even "=0" enables the cursor.
 unset COG_PLATFORM_DRM_CURSOR
 LOADER=/usr/share/kiosk/loader.html
 
-# Overdracht van de opstartanimatie zonder zwart scherm:
-# - 'plymouth deactivate' geeft DRM-master vrij, maar het laatste beeld blijft
-#   op het scherm (plymouthd leeft nog, zijn framebuffer dus ook);
-# - Cog neemt het scherm over en toont loader.html met dezelfde animatie tot
-#   Home Assistant bereikbaar is (vervangt ook het wachten op Wi-Fi);
-# - pas daarna 'plymouth quit'. Bij 'quit' sluit plymouthd zijn framebuffer
-#   en zet de kernel het scherm op de (zwarte) fbcon -> dat mag pas als Cog tekent.
-# plymouth-quit(-wait).service zijn gemaskeerd, dus enkel wij sluiten Plymouth af.
+# Hand-over from the boot animation without a black screen:
+# - 'plymouth deactivate' releases DRM master, but the last frame stays on
+#   screen (plymouthd is still alive, and so is its framebuffer);
+# - Cog takes over the screen and shows loader.html with the same animation
+#   until Home Assistant is reachable (this also replaces waiting for Wi-Fi);
+# - only then 'plymouth quit'. On 'quit' plymouthd closes its framebuffer and
+#   the kernel switches to the (black) fbcon -> only allowed once Cog draws.
+# plymouth-quit(-wait).service are masked, so only we stop Plymouth.
 if sudo -n /usr/bin/plymouth --ping 2>/dev/null; then
 	sudo -n /usr/bin/plymouth deactivate 2>/dev/null || true
 	( sleep 20; sudo -n /usr/bin/plymouth quit --retain-splash 2>/dev/null ) &
@@ -41,5 +41,5 @@ while true; do
 	fi
 	# output to the journal (journalctl -t kiosk-cog): WebKit crashes are otherwise invisible
 	cog --platform=drm $COG_OPTS "$URL" 2>&1 | systemd-cat -t kiosk-cog
-	sleep 1   # cog gecrasht, afgesloten of door px30-panel herstart -> opnieuw
+	sleep 1   # cog crashed, exited or was restarted by px30-panel -> again
 done

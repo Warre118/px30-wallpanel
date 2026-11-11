@@ -1,9 +1,9 @@
 [Unit]
-Description=Beelddiagnose naar de seriële console (debugfase)
+Description=Display diagnostics to the serial console (debug phase)
 After=plymouth-start.service
 
 [Service]
-# simple + sleep: blokkeert het opstarten niet, draait ~20 s na de start
+# simple + sleep: does not block boot, runs ~20 s after start
 Type=simple
 ExecStartPre=/bin/sleep 20
 ExecStart=/usr/local/sbin/panel-diag

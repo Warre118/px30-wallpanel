@@ -1,7 +1,7 @@
 #!/bin/sh
-# USB-netwerk (CDC-NCM) op de OTG-poort: de PC krijgt via DHCP een adres in
-# 10.55.0.0/24, het panel is 10.55.0.1 -> ssh admin@10.55.0.1
-# Werkt los van Wi-Fi. Windows 10/11 heeft een ingebouwde NCM-driver.
+# USB network (CDC-NCM) on the OTG port: the PC gets an address in
+# 10.55.0.0/24 via DHCP, the panel is 10.55.0.1 -> ssh admin@10.55.0.1
+# Works independently of Wi-Fi. Windows 10/11 has a built-in NCM driver.
 set -e
 G=/sys/kernel/config/usb_gadget/px30
 modprobe libcomposite
@@ -13,7 +13,7 @@ echo 0x1d6b > idVendor          # Linux Foundation
 echo 0x0104 > idProduct         # Multifunction Composite Gadget
 echo 0x0100 > bcdDevice
 echo 0x0200 > bcdUSB
-echo 0xEF > bDeviceClass        # IAD: nodig voor Windows' NCM-driver
+echo 0xEF > bDeviceClass        # IAD: needed for Windows' NCM driver
 echo 0x02 > bDeviceSubClass
 echo 0x01 > bDeviceProtocol
 mkdir -p strings/0x409
@@ -24,7 +24,7 @@ mkdir -p configs/c.1/strings/0x409
 echo "NCM" > configs/c.1/strings/0x409/configuration
 echo 250 > configs/c.1/MaxPower
 mkdir -p functions/ncm.usb0
-# vaste MAC-adressen (lokaal beheerd), zodat Windows het netwerk herkent
+# fixed MAC addresses (locally administered), so Windows recognises the network
 echo 02:50:58:33:30:01 > functions/ncm.usb0/host_addr
 echo 02:50:58:33:30:02 > functions/ncm.usb0/dev_addr
 ln -s functions/ncm.usb0 configs/c.1/

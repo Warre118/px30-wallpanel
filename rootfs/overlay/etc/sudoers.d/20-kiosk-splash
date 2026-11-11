@@ -1,2 +1,2 @@
-# kiosk mag enkel de opstartanimatie overdragen en afsluiten (zie kiosk-start)
+# kiosk may only hand over and stop the boot animation (see kiosk-start)
 kiosk ALL=(root) NOPASSWD: /usr/bin/plymouth --ping, /usr/bin/plymouth deactivate, /usr/bin/plymouth quit --retain-splash

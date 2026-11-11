@@ -581,7 +581,7 @@ class Agent:
                 p["latest_version"] = installed
             return p
         return {
-            self.t_upd_fw: payload(fw_inst, self.fw_latest, self.fw_busy, "PX30 systeem"),
+            self.t_upd_fw: payload(fw_inst, self.fw_latest, self.fw_busy, "PX30 system"),
             self.t_upd_mod: payload(mod_inst, self.mod_latest, self.mod_busy,
                                     f"TYZS13 {stack}-firmware"),
         }

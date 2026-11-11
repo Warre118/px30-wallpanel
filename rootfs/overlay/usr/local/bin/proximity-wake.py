@@ -1,29 +1,30 @@
 #!/usr/bin/env python3
 """
-proximity-wake - zet het scherm van het PX30-panel aan bij nadering of touch,
-en weer uit na een periode zonder aanwezigheid. Enige eigenaar van de backlight.
+proximity-wake - turns the PX30 panel screen on when someone approaches or
+touches it, and off again after a period without presence. Sole owner of the
+backlight.
 
 - Sensor: stk3310 via IIO (in_proximity_raw, in_illuminance_raw/_scale).
-- Instellingen: /data/px30-agent/display.json (geschreven door px30-agent / HA),
-  opnieuw gelezen bij SIGHUP. Ontbreekt het bestand: de standaardwaarden hieronder.
-- SIGUSR1 = scherm nu aan (zoals een touch), SIGUSR2 = scherm nu uit.
-- Live status in /run/px30-display/state.json (alleen bij wijziging):
+- Settings: /data/px30-agent/display.json (written by px30-agent / HA),
+  re-read on SIGHUP. If the file is missing: the defaults below.
+- SIGUSR1 = screen on now (like a touch), SIGUSR2 = screen off now.
+- Live state in /run/px30-display/state.json (only on change):
   {"near": bool, "screen_on": bool, "brightness": %, "lux": x}
-Enkel Python-stdlib.
+Python stdlib only.
 """
 import glob, json, math, os, select, signal, struct, time
 
-POLL_S = 0.2                 # 200 ms, zoals de Android-driver
+POLL_S = 0.2                 # 200 ms, like the Android driver
 SETTINGS = "/data/px30-agent/display.json"
 STATE = "/run/px30-display/state.json"
-TOUCH_NAME = "hynitron"      # deel van de naam van het touch-inputdevice ("Hynitron cst3xx Touchscreen")
+TOUCH_NAME = "hynitron"      # part of the touch input device name ("Hynitron cst3xx Touchscreen")
 DEFAULTS = {
-    "brightness": 80,         # % van max_brightness (bij auto: het maximum)
+    "brightness": 80,         # % of max_brightness (auto: the maximum)
     "auto_brightness": False,
-    "brightness_min": 10,     # % ondergrens bij auto
-    "screen_timeout": 60,     # s aan na laatste aanwezigheid/touch
-    "near_delta": 60,         # zoveel boven de basislijn = "iemand dichtbij"
-    "far_delta": 30,          # hysterese: pas onder deze grens terug "ver"
+    "brightness_min": 10,     # % lower bound in auto mode
+    "screen_timeout": 60,     # s on after the last presence/touch
+    "near_delta": 60,         # this much above the baseline = "someone near"
+    "far_delta": 30,          # hysteresis: only "far" again below this
 }
 LUX_LO, LUX_HI = 1.0, 500.0  # auto: <= LUX_LO -> minimum, >= LUX_HI -> maximum
 
@@ -32,13 +33,13 @@ def find_iio():
     for d in glob.glob("/sys/bus/iio/devices/iio:device*"):
         if os.path.exists(f"{d}/in_proximity_raw"):
             return d
-    raise SystemExit("geen IIO-device met in_proximity_raw gevonden (driver stk3310 geladen?)")
+    raise SystemExit("no IIO device with in_proximity_raw found (is the stk3310 driver loaded?)")
 
 
 def find_backlight():
     bl = sorted(glob.glob("/sys/class/backlight/*"))
     if not bl:
-        raise SystemExit("geen backlight in /sys/class/backlight")
+        raise SystemExit("no backlight in /sys/class/backlight")
     return bl[0]
 
 
@@ -193,7 +194,7 @@ class Wake:
             elif near and value < baseline + self.cfg["far_delta"]:
                 near = False
             if not near:
-                # basislijn traag laten meedrijven (temperatuur, stof op het glas)
+                # let the baseline drift slowly (temperature, dust on the glass)
                 baseline = (baseline * 31 + value) // 32
             if near:
                 last_presence = now
@@ -204,7 +205,7 @@ class Wake:
                 last_presence = now - self.cfg["screen_timeout"] - 1
             self.force = None
 
-            # licht: elke seconde meten, EMA ~5 s
+            # light: measure every second, EMA ~5 s
             lux = None
             if now - lux_t >= 1.0:
                 lux_t = now

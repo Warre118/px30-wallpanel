@@ -33,7 +33,7 @@ do_reinstall() { # [--wipe-data]
 	mkdir -p /mnt/factory
 	grep -q " /mnt/factory " /proc/mounts || mount -t ext4 -o ro "$f" /mnt/factory || die "factory mount"
 	[ -s /mnt/factory/rootfs.img.zst ] || die "no rootfs.img.zst in factory"
-	say "Systeem herstellen vanuit factory (versie $(cat /mnt/factory/VERSION 2>/dev/null)) ..."
+	say "Restoring the system from factory (version $(cat /mnt/factory/VERSION 2>/dev/null)) ..."
 	zstd -t -q /mnt/factory/rootfs.img.zst || die "factory image is damaged"
 	zstd -dc /mnt/factory/rootfs.img.zst | dd of="$r" bs=1048576 2>/dev/null || die "writing rootfs_a"
 	sync

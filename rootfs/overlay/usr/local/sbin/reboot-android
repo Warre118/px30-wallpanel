@@ -1,8 +1,8 @@
 #!/bin/sh
-# Terug naar Android. Debian start uit de recovery-partitie (adb reboot recovery).
-# Staat er in misc nog een "boot-recovery"-opdracht (Android bootloader-message,
-# bij Rockchip op offset 0 of 16 KiB), dan wist dit script ENKEL die 32 bytes
-# en herstart daarna. Anders gewoon herstarten.
+# Back to Android. Debian starts from the recovery partition (adb reboot recovery).
+# If misc still holds a "boot-recovery" command (Android bootloader message,
+# on Rockchip at offset 0 or 16 KiB), this script clears ONLY those 32 bytes
+# and then reboots. Otherwise it just reboots.
 set -eu
 MISC=/dev/disk/by-partlabel/misc
 [ "$(id -u)" = 0 ] || exec sudo "$0" "$@"

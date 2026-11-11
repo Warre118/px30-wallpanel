@@ -1,4 +1,4 @@
-# USB-netwerk naar de PC (zie usb-gadget-ncm). Wi-Fi blijft bij iwd.
+# USB network to the PC (see usb-gadget-ncm). Wi-Fi stays with iwd.
 [Match]
 Name=usb0
 

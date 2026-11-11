@@ -2,13 +2,13 @@
 # Login banner (ssh): how this panel is managed.
 echo
 if [ -s /data/px30-agent/config.json ] && systemctl is-active --quiet px30-agent; then
-	echo "Home Assistant: verbonden via MQTT (px30-agent).  Wijzigen: sudo px30-agent-setup"
+	echo "Home Assistant: connected via MQTT (px30-agent).  Change: sudo px30-agent-setup"
 elif [ -s /data/px30-agent/config.json ]; then
-	echo "Home Assistant: MQTT ingesteld maar px30-agent draait niet (sudo px30-agent-setup --test)."
+	echo "Home Assistant: MQTT configured but px30-agent is not running (sudo px30-agent-setup --test)."
 else
-	echo "Home Assistant: GEEN MQTT ingesteld - dit panel is enkel via SSH te beheren."
-	echo "  Koppelen aan HA:  sudo px30-agent-setup"
+	echo "Home Assistant: NO MQTT configured - this panel can only be managed via SSH."
+	echo "  Connect to HA:    sudo px30-agent-setup"
 fi
-echo "Radiomodule:  px30-radio status | list | switch thread|zigbee [stable|latest]"
-echo "Systeem:      px30-ctl status | rescue | reinstall | factory-reset"
+echo "Radio module: px30-radio status | list | switch thread|zigbee [stable|latest]"
+echo "System:       px30-ctl status | rescue | reinstall | factory-reset"
 echo
