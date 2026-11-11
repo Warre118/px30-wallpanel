@@ -27,6 +27,14 @@ for f in "$O/Image" "$O/px30-smatek-wallpanel.dtb" "$I" "$R"; do [ -f "$f" ] || 
 python3 "$PROJ/boot/make-recovery-img.py" "$O/Image" "$O/px30-smatek-wallpanel.dtb" "$PROJ/kernel/cmdline-boot.txt" "$D/px30-boot.img" "$I" | head -1
 python3 "$PROJ/boot/make-recovery-img.py" "$O/Image" "$O/px30-smatek-wallpanel.dtb" "$PROJ/kernel/cmdline-rescue.txt" "$D/px30-rescue.img" "$I" | head -1
 
+# stamp the version into the image (/etc/px30-release: HA "System version",
+# update checks); debugfs edits the ext4 image without mounting it
+REL="$(mktemp)"; printf 'VERSION=%s\nBUILD_DATE=%s\n' "$VER" "$(date -u +%F)" > "$REL"
+/sbin/debugfs -w -R "rm /etc/px30-release" "$R" >/dev/null 2>&1 || true
+/sbin/debugfs -w -R "write $REL /etc/px30-release" "$R" >/dev/null
+for a in "mode 0100644" "uid 0" "gid 0"; do /sbin/debugfs -w -R "sif /etc/px30-release $a" "$R" >/dev/null; done
+rm -f "$REL"
+
 # the image must be clean before it becomes the golden copy
 /sbin/e2fsck -fn "$R" >/dev/null
 echo "rootfs comprimeren ..."
