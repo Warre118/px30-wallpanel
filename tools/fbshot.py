@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Screenshot van een DRM-framebuffer (XRGB/ARGB8888) naar PNG, alleen stdlib.
+"""Screenshot of a DRM framebuffer (XRGB/ARGB8888) to PNG, stdlib only.
 
-Gebruik (root):  python3 fbshot.py <fb_id> /tmp/shot.png
-fb_id: zie /sys/kernel/debug/dri/0/state (plane-0 -> fb=NN).
+Usage (root):  python3 fbshot.py <fb_id> /tmp/shot.png
+fb_id: see /sys/kernel/debug/dri/0/state (plane-0 -> fb=NN).
 """
 import fcntl, mmap, os, struct, sys, zlib
 
@@ -20,7 +20,7 @@ try:
     off = struct.unpack("IIQ", m)[2]
     mm = mmap.mmap(fd, pitch * h, mmap.MAP_SHARED, mmap.PROT_READ, offset=off)
 except OSError:
-    # Geïmporteerde buffer (GPU/Mesa via dma-buf): exporteer als dma-buf en mmap die.
+    # Imported buffer (GPU/Mesa via dma-buf): export it as a dma-buf and mmap that.
     p = bytearray(struct.pack("IIi", handle, os.O_CLOEXEC, -1))
     fcntl.ioctl(fd, 0xC00C642D, p)  # DRM_IOCTL_PRIME_HANDLE_TO_FD
     dfd = struct.unpack("IIi", p)[2]
@@ -41,4 +41,4 @@ def chunk(t, d):
 png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) \
     + chunk(b"IDAT", zlib.compress(bytes(raw), 6)) + chunk(b"IEND", b"")
 open(out, "wb").write(png)
-print(f"{w}x{h} pitch={pitch} bpp={bpp} niet-zwarte pixels: {nonblack}/{w*h}")
+print(f"{w}x{h} pitch={pitch} bpp={bpp} non-black pixels: {nonblack}/{w*h}")

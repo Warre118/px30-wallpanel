@@ -22,7 +22,7 @@ R="$HOME/px30-build/rootfs/px30-rootfs.ext4"
 BASE="$HOME/px30-build/initramfs/base"
 D="${PX30_OUT:-$HOME/px30-out}/release-$VER"
 mkdir -p "$D"
-for f in "$O/Image" "$O/px30-smatek-wallpanel.dtb" "$I" "$R"; do [ -f "$f" ] || { echo "ontbreekt: $f"; exit 1; }; done
+for f in "$O/Image" "$O/px30-smatek-wallpanel.dtb" "$I" "$R"; do [ -f "$f" ] || { echo "missing: $f"; exit 1; }; done
 
 python3 "$PROJ/boot/make-recovery-img.py" "$O/Image" "$O/px30-smatek-wallpanel.dtb" "$PROJ/kernel/cmdline-boot.txt" "$D/px30-boot.img" "$I" | head -1
 python3 "$PROJ/boot/make-recovery-img.py" "$O/Image" "$O/px30-smatek-wallpanel.dtb" "$PROJ/kernel/cmdline-rescue.txt" "$D/px30-rescue.img" "$I" | head -1
@@ -37,7 +37,7 @@ rm -f "$REL"
 
 # the image must be clean before it becomes the golden copy
 /sbin/e2fsck -fn "$R" >/dev/null
-echo "rootfs comprimeren ..."
+echo "compressing the rootfs ..."
 qemu-aarch64-static -L "$BASE" "$BASE/usr/bin/zstd" -q -T0 -12 --check -f -c "$R" > "$D/px30-rootfs.img.zst"
 qemu-aarch64-static -L "$BASE" "$BASE/usr/bin/zstd" -q -t "$D/px30-rootfs.img.zst"
 

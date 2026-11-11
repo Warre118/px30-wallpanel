@@ -19,32 +19,32 @@ SSH=(ssh -o UserKnownHostsFile="$KH" -o HostKeyAlias="$ALIAS"
 L='. /usr/local/lib/px30/px30-state.sh'
 rs() { "${SSH[@]}" "sudo -n sh -c '$L; $1'"; }
 
-(cd "$D" && sha256sum -c --quiet SHA256SUMS) || { echo "FOUT: release-bestanden kloppen niet"; exit 1; }
+(cd "$D" && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR: release files do not match SHA256SUMS"; exit 1; }
 echo "release $(cat "$D/VERSION") -> $H"
 
-read -r CUR NEW < <(rs 'state_load; r=$(findmnt -no SOURCE /); [ "$r" = "$(px30_part rootfs_$slot)" ] || { echo "root $r is niet rootfs_$slot" >&2; exit 1; }; [ $slot = a ] && echo "a b" || echo "b a"')
-echo "actief: rootfs_$CUR, nieuw: rootfs_$NEW"
+read -r CUR NEW < <(rs 'state_load; r=$(findmnt -no SOURCE /); [ "$r" = "$(px30_part rootfs_$slot)" ] || { echo "root $r is not rootfs_$slot" >&2; exit 1; }; [ $slot = a ] && echo "a b" || echo "b a"')
+echo "active: rootfs_$CUR, new: rootfs_$NEW"
 
 t0=$SECONDS
 # (the rootfs has no e2fsprogs: the initramfs grows the image to the slot at boot)
-rs "r=\$(px30_part rootfs_$NEW); grep -q \"^\$r \" /proc/mounts && exit 1; zstd -dc | dd of=\$r bs=1M 2>/dev/null && sync && blkid \$r | grep -q px30-root && echo \"rootfs_$NEW geschreven\"" < "$D/px30-rootfs.img.zst"
+rs "r=\$(px30_part rootfs_$NEW); grep -q \"^\$r \" /proc/mounts && exit 1; zstd -dc | dd of=\$r bs=1M 2>/dev/null && sync && blkid \$r | grep -q px30-root && echo \"rootfs_$NEW written\"" < "$D/px30-rootfs.img.zst"
 echo "  $((SECONDS - t0)) s"
 
-rs 'dd of=$(px30_part boot) bs=1M 2>/dev/null && sync && echo "boot geschreven"' < "$D/px30-boot.img"
-rs 'dd of=$(px30_part recovery) bs=1M 2>/dev/null && sync && echo "recovery geschreven"' < "$D/px30-rescue.img"
+rs 'dd of=$(px30_part boot) bs=1M 2>/dev/null && sync && echo "boot written"' < "$D/px30-boot.img"
+rs 'dd of=$(px30_part recovery) bs=1M 2>/dev/null && sync && echo "recovery written"' < "$D/px30-rescue.img"
 
 rs 'mkdir -p /mnt/factory; grep -q " /mnt/factory " /proc/mounts || mount $(px30_part factory) /mnt/factory'
 for f in px30-rootfs.img.zst:rootfs.img.zst px30-boot.img:boot.img px30-rescue.img:recovery.img VERSION:VERSION SHA256SUMS:SHA256SUMS; do
   rs "cat > /mnt/factory/${f#*:}.tmp && mv /mnt/factory/${f#*:}.tmp /mnt/factory/${f#*:}" < "$D/${f%%:*}"
 done
 rs 'cd /mnt/factory && sed -e "s/px30-rootfs.img.zst/rootfs.img.zst/;s/px30-boot.img/boot.img/;s/px30-rescue.img/recovery.img/" SHA256SUMS | sha256sum -c
-  for p in boot recovery; do n=$(wc -c < /mnt/factory/$p.img); head -c $n $(px30_part $p) | cmp -s - /mnt/factory/$p.img && echo "$p: OK" || { echo "$p: VERSCHIL"; exit 1; }; done
+  for p in boot recovery; do n=$(wc -c < /mnt/factory/$p.img); head -c $n $(px30_part $p) | cmp -s - /mnt/factory/$p.img && echo "$p: OK" || { echo "$p: DIFFERENT"; exit 1; }; done
   cd /; umount /mnt/factory'
 
 rs "state_load; slot=$NEW; fallback=$CUR; tries=0; action=; state_save; state_show"
 if [ "$RB" = --reboot ]; then
   rs 'systemctl reboot' || true
-  echo "herstart; na ~40 s: px30-ctl status (tries=0, fallback leeg = ok)"
+  echo "rebooting; after ~40 s: px30-ctl status (tries=0, empty fallback = ok)"
 else
-  echo "klaar; nieuwe slot actief bij de volgende herstart"
+  echo "done; the new slot is active from the next reboot"
 fi

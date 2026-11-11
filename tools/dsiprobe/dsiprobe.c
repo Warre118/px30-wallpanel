@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * dsiprobe: diagnose voor het ST7701-paneel. Leest DCS-registers via de
- * bestaande mipi_dsi_device van het paneel en kan losse DCS-commando's sturen.
- *   insmod dsiprobe.ko                -> leest 0x0A/0x0B/0x0C/0x0D/0x04/0xDA-0xDC
- *   insmod dsiprobe.ko cmd=0x23       -> stuurt DCS 0x23 (all pixels on) en leest opnieuw
+ * dsiprobe: diagnostics for the ST7701 panel. Reads DCS registers through the
+ * panel's existing mipi_dsi_device and can send single DCS commands.
+ *   insmod dsiprobe.ko                -> reads 0x0A/0x0B/0x0C/0x0D/0x04/0xDA-0xDC
+ *   insmod dsiprobe.ko cmd=0x23       -> sends DCS 0x23 (all pixels on) and reads again
  *   insmod dsiprobe.ko cmd=0x11,0x29  -> meerdere korte commando's (120 ms ertussen)
- * De module blijft niet geladen (init geeft -EAGAIN terug), resultaat in dmesg.
+ * The module does not stay loaded (init returns -EAGAIN); results in dmesg.
  */
 #include <drm/drm_mipi_dsi.h>
 #include <linux/delay.h>
@@ -17,7 +17,7 @@
 static int cmd[8];
 static int ncmd;
 module_param_array(cmd, int, &ncmd, 0);
-/* vendor=1: display off + sleep in, daarna de Android-init letterlijk afspelen */
+/* vendor=1: display off + sleep in, then replay the Android init literally */
 static int vendor;
 module_param(vendor, int, 0);
 
@@ -48,7 +48,7 @@ static void rd(struct mipi_dsi_device *dsi, u8 reg, size_t len)
 	ssize_t ret = mipi_dsi_dcs_read(dsi, reg, buf, len);
 
 	if (ret < 0)
-		pr_info("dsiprobe: read 0x%02x -> fout %zd\n", reg, ret);
+		pr_info("dsiprobe: read 0x%02x -> error %zd\n", reg, ret);
 	else
 		pr_info("dsiprobe: read 0x%02x -> %zd bytes: %*ph\n", reg, ret, (int)len, buf);
 }
@@ -77,7 +77,7 @@ static int __init dsiprobe_init(void)
 	dsi = of_find_mipi_dsi_device_by_node(np);
 	of_node_put(np);
 	if (!dsi) {
-		pr_info("dsiprobe: geen mipi_dsi_device\n");
+		pr_info("dsiprobe: no mipi_dsi_device\n");
 		return -ENODEV;
 	}
 	pr_info("dsiprobe: device %s lanes=%u format=%d flags=0x%lx\n",

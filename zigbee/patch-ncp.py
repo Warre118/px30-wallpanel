@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Zet de TYZS13-pinout (USART0, HW-flow) in de gegenereerde ncp-uart-hw-config.
+"""Put the TYZS13 pinout (USART0, HW flow) into the generated ncp-uart-hw config.
 
-Zelfde pinout als patch-ot-rcp.py, maar het NCP gebruikt iostream_usart
+Same pinout as patch-ot-rcp.py, but the NCP uses iostream_usart
 (SL_IOSTREAM_USART_VCOM_*) i.p.v. uartdrv.
 TYZS13 / EFR32MG13P732F512GM48 -> PX30 UART5:
   TX  PA0 LOC0   RX  PA1 LOC0   CTS PF4 LOC24   RTS PA2 LOC29
-HFXO 38,4 MHz, DC-DC en LFRCO (geen LFXO) zijn de slc-standaard voor dit device.
+HFXO 38.4 MHz, DC-DC and LFRCO (no LFXO) are the slc defaults for this device.
 """
 import re, sys, pathlib
 
@@ -34,11 +34,11 @@ assert n == 1, "flow control"
 cfg.write_text(src)
 print("ok", cfg, "baud", baud, "RTS/CTS")
 
-# Controle klokken: geen LFXO op de module.
+# Check the clocks: no LFXO on the module.
 clk = (proj / "autogen" / "sl_device_init_clocks.c").read_text()
 if "LFXO" in clk:
-    sys.exit("FOUT: autogen kiest LFXO, maar de TYZS13 heeft er geen")
+    sys.exit("ERROR: autogen picks LFXO, but the TYZS13 has none")
 hfxo = (proj / "config" / "sl_device_init_hfxo_config.h").read_text()
 if not re.search(r"#define SL_DEVICE_INIT_HFXO_FREQ\s+38400000", hfxo):
-    sys.exit("FOUT: HFXO niet 38,4 MHz")
+    sys.exit("ERROR: HFXO is not 38.4 MHz")
 print("ok klokken: HFXO 38.4 MHz, LF = LFRCO")

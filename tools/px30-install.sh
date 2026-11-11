@@ -16,21 +16,21 @@
 # while it is powered from the PC's USB port).
 # =====================================================================
 set -euo pipefail
-D="${1:?gebruik: $0 <release-map> [--repartition]}"
+D="${1:?usage: $0 <release-dir> [--repartition]}"
 REPART="${2:-}"
 KH="${PX30_KNOWN_HOSTS_RESCUE:-$HOME/.ssh/known_hosts_px30_rescue}"
 RS=(ssh -o UserKnownHostsFile="$KH" -o StrictHostKeyChecking=accept-new -o HostKeyAlias=px30-rescue
     -o ServerAliveInterval=10 -o ServerAliveCountMax=6 root@10.55.0.1)
 rs() { "${RS[@]}" "$@"; }
 
-(cd "$D" && sha256sum -c --quiet SHA256SUMS) || { echo "FOUT: release-bestanden kloppen niet"; exit 1; }
+(cd "$D" && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR: release files do not match SHA256SUMS"; exit 1; }
 echo "release $(cat "$D/VERSION")"
-rs 'px30-rescue hold; px30-rescue status' || { echo "FOUT: geen herstelmodus op 10.55.0.1"; exit 1; }
+rs 'px30-rescue hold; px30-rescue status' || { echo "ERROR: no rescue mode on 10.55.0.1"; exit 1; }
 
 if [ "$REPART" = --repartition ]; then
   rs 'px30-rescue repartition --yes'
 fi
-rs 'px30-rescue status' | grep -q rootfs_a || { echo "FOUT: geen PX30-indeling (gebruik --repartition)"; exit 1; }
+rs 'px30-rescue status' | grep -q rootfs_a || { echo "ERROR: no PX30 layout (use --repartition)"; exit 1; }
 
 echo "boot + recovery ..."
 rs 'px30-rescue write-part boot' < "$D/px30-boot.img"
@@ -53,4 +53,4 @@ rs '. /lib/px30-state.sh
   for p in boot recovery; do n=$(wc -c < /mnt/f/$p.img); head -c $n $(px30_part $p) | cmp -s - /mnt/f/$p.img && echo "$p: OK" || echo "$p: VERSCHIL"; done
   cd /; umount /mnt/f
   px30-rescue status'
-echo "klaar; herstarten met: ssh ... root@10.55.0.1 px30-rescue reboot"
+echo "done; reboot with: ssh ... root@10.55.0.1 px30-rescue reboot"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Toolchain voor de OpenThread-RCP-build (EFR32MG13, serie 1) in WSL, zonder root:
-# Gecko SDK 4.4.x (laatste met serie-1-ondersteuning), slc-cli, Arm GCC 12.2,
-# Simplicity Commander en een portable Java 17 (Temurin) voor slc.
+# Toolchain for the OpenThread RCP build (EFR32MG13, series 1) in WSL, without root:
+# Gecko SDK 4.4.x (the last with series 1 support), slc-cli, Arm GCC 12.2,
+# Simplicity Commander and a portable Java 17 (Temurin) for slc.
 set -euo pipefail
 T="${T:-$HOME/px30-build/silabs}"
 mkdir -p "$T" && cd "$T"

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""32-bit register lezen/schrijven via /dev/mem (debug).
-Gebruik: memw.py <adres-hex>                -> lezen
-         memw.py <adres-hex> <waarde-hex>   -> schrijven en teruglezen
-         memw.py <adres-hex> set|clr <bits-hex>
+"""Read/write a 32-bit register through /dev/mem (debug).
+Usage: memw.py <addr-hex>                -> read
+       memw.py <addr-hex> <value-hex>    -> write and read back
+       memw.py <addr-hex> set|clr <bits-hex>
 """
 import mmap, os, struct, sys
 a = int(sys.argv[1], 16); page = a & ~0xfff; off = a - page

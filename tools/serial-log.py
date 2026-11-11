@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Seriële console van het panel loggen (debug-UART2, 1 500 000 8N1).
-Gebruik: python tools/serial-log.py [COMx] [baud] [logbestand] [seconden]
-Zonder COM-poort: neemt de enige USB-seriële poort die er is.
-Schrijft ruwe bytes naar het logbestand (ook halve regels), stopt na N s.
+Log the panel's serial console (UART5 pads or debug UART2).
+Usage: python tools/serial-log.py [COMx] [baud] [logfile] [seconds]
+Without a COM port: takes the only USB serial port there is.
+Writes raw bytes to the log file (also partial lines), stops after N s.
 """
 import sys, time
 import serial, serial.tools.list_ports
@@ -16,7 +16,7 @@ dur = float(sys.argv[4]) if len(sys.argv) > 4 else 300
 if not port:
     usb = [p for p in serial.tools.list_ports.comports() if p.vid]
     if len(usb) != 1:
-        sys.exit("geen of meerdere USB-seriële poorten: " + ", ".join(f"{p.device} ({p.description})" for p in usb))
+        sys.exit("no or several USB serial ports: " + ", ".join(f"{p.device} ({p.description})" for p in usb))
     port = usb[0].device
 s = serial.Serial(port, baud, timeout=0.2)
 print(f"{port} @ {baud} -> {log} ({dur:.0f} s)", flush=True)
@@ -27,4 +27,4 @@ with open(log, "ab") as f:
         b = s.read(4096)
         if b:
             f.write(b); f.flush(); n += len(b)
-print(f"klaar: {n} bytes", flush=True)
+print(f"done: {n} bytes", flush=True)

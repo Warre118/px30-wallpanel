@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Minimale TCP<->UART-brug zonder pyserial (alleen stdlib).
+"""Minimal TCP<->UART bridge without pyserial (stdlib only).
 
-Gebruik op het paneel:  sudo python3 tcp-serial-bridge.py /dev/ttyS0 115200 6638 [flow|noflow] [luisteradres]
-Tunnel vanaf de pc:     ssh -N -L 6638:127.0.0.1:6638 admin@<panel-ip>
-Daarna:                 universal-silabs-flasher --device socket://127.0.0.1:6638 probe
-Eén client tegelijk; 8N1, raw, hardware-flowcontrol (RTS/CTS).
+Usage on the panel:  sudo python3 tcp-serial-bridge.py /dev/ttyThread 115200 6638 [flow|noflow] [listen-address]
+Tunnel from the PC:  ssh -N -L 6638:127.0.0.1:6638 admin@<panel-ip>
+Then:                universal-silabs-flasher --device socket://127.0.0.1:6638 probe
+One client at a time; 8N1, raw, hardware flow control (RTS/CTS).
 """
 import os, socket, selectors, sys, termios, tty
 
 dev, baud, port = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 B = {115200: termios.B115200, 230400: termios.B230400, 460800: termios.B460800}[baud]
-# 4e argument "noflow": zonder RTS/CTS (de Gecko-bootloader van de TYZS13 gebruikt geen flowcontrol)
+# 4th argument "noflow": without RTS/CTS (the TYZS13 Gecko bootloader uses no flow control)
 FLOW = 0 if (len(sys.argv) > 4 and sys.argv[4] == "noflow") else termios.CRTSCTS
 
 fd = os.open(dev, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
@@ -22,7 +22,7 @@ termios.tcsetattr(fd, termios.TCSANOW, a)
 termios.tcflush(fd, termios.TCIOFLUSH)
 
 srv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-# 5e argument: luisteradres (standaard enkel lokaal; px30-zigbee-bridge leest het uit radio.conf)
+# 5th argument: listen address (local only by default; px30-zigbee-bridge reads it from radio.conf)
 BIND = sys.argv[5] if len(sys.argv) > 5 else "127.0.0.1"
 srv.bind((BIND, port))
 srv.listen(1)

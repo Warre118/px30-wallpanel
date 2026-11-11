@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bisect: DSI-host + PLL terug op mainline-waarden (240 Mbps), DPHY-lanetimings blijven Android.
+# Bisect: DSI host + PLL back to the mainline values (240 Mbps), D-PHY lane timings stay Android.
 W=/usr/local/sbin/regwrite
 $W ff450004 0
 $W ff2e000c 01

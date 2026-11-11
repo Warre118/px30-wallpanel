@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lees 32-bit registers via /dev/mem. Gebruik: devmem.py <basis-hex> <offset-hex>... """
+"""Read 32-bit registers through /dev/mem. Usage: devmem.py <base-hex> <offset-hex>... """
 import mmap, os, struct, sys
 
 base = int(sys.argv[1], 16)

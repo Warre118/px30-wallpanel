@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# otbr-agent (ot-br-posix uit Gecko SDK 4.4.6, zelfde OpenThread als de RCP) cross-bouwen voor arm64.
-# Vereist (WSL): g++-aarch64-linux-gnu cmake ninja-build pkg-config + :arm64 dev-pakketten
+# Cross-build otbr-agent (ot-br-posix from Gecko SDK 4.4.6, same OpenThread as the RCP) for arm64.
+# Needs (WSL): g++-aarch64-linux-gnu cmake ninja-build pkg-config + :arm64 dev packages
 #   libavahi-client-dev libavahi-common-dev libsystemd-dev
 set -euo pipefail
 GSDK_TP="$HOME/px30-build/silabs/gecko_sdk/util/third_party"
 SRC="$HOME/px30-build/zigbee/ot-br-posix"
 B="$HOME/px30-build/zigbee/otbr-build"
 OUT="$HOME/px30-build/zigbee/otbr-dist"
-# Werkkopie (SDK zelf niet wijzigen); Silabs levert third_party/openthread/repo niet mee:
-# dat is de OpenThread van de SDK zelf (zelfde commit als de RCP-firmware).
+# Working copy (do not modify the SDK); Silabs does not ship third_party/openthread/repo:
+# that is the SDK's own OpenThread (same commit as the RCP firmware).
 if [ ! -d "$SRC" ]; then
   cp -a "$GSDK_TP/ot-br-posix" "$SRC"
   ln -s "$GSDK_TP/openthread" "$SRC/third_party/openthread/repo"
 fi
-# GCC 14 geeft vals-positieve -Warray-bounds in mbedtls; niet als fout behandelen.
+# GCC 14 gives false-positive -Warray-bounds in mbedtls; do not treat them as errors.
 sed -i 's/ -Werror -Wfatal-errors/ -Wfatal-errors/' "$SRC/CMakeLists.txt"
 mkdir -p "$B"
 cat >"$B/toolchain.cmake" <<'EOF'

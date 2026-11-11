@@ -66,7 +66,7 @@ ln -s mke2fs "$S/usr/sbin/mkfs.ext4"
 # 3. USB gadget modules (libcomposite, u_ether, usb_f_ncm)
 for m in libcomposite u_ether usb_f_ncm; do
   k="$(find "$KOUT/lib/modules/$KVER" -name "$m.ko*" | head -1)"
-  [ -n "$k" ] || { echo "module $m ontbreekt"; exit 1; }
+  [ -n "$k" ] || { echo "module $m missing"; exit 1; }
   case "$k" in *.xz) xz -dc "$k" ;; *.zst) zstd -dc "$k" ;; *) cat "$k" ;; esac > "$S/usr/lib/modules/$m.ko"
 done
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Zet de TYZS13-pinout (USART0, HW-flow) in de gegenereerde ot-rcp-config.
+"""Put the TYZS13 pinout (USART0, HW flow) into the generated ot-rcp config.
 
 TYZS13 / EFR32MG13P732F512GM48 -> PX30 UART5:
   TX  PA0 LOC0   RX  PA1 LOC0   CTS PF4 LOC24   RTS PA2 LOC29
-LF-klok: geen LFXO op de module; slc genereert al LFRCO voor LFA/LFB/LFE.
+LF clock: no LFXO on the module; slc already generates LFRCO for LFA/LFB/LFE.
 """
 import re, sys, pathlib
 
@@ -28,13 +28,13 @@ cfg.write_text(src)
 print("ok", cfg, "baud", baud)
 
 # BELANGRIJK: openthread-core-efr32-config.h test SL_CATALOG_GECKO_BOOTLOADER_INTERFACE_PRESENT
-# zonder sl_component_catalog.h te includen -> BOOTLOADER_MODE_ENABLE wordt 0 en de RCP
-# negeert Spinel RESET_BOOTLOADER (reset gewoon herstart). Zonder dit kan universal-silabs-
-# flasher de module NIET meer in de bootloader krijgen (alleen nog via SWD).
+# without including sl_component_catalog.h -> BOOTLOADER_MODE_ENABLE becomes 0 and the RCP
+# ignores Spinel RESET_BOOTLOADER (it just restarts). Without this, universal-silabs-flasher
+# can NOT get the module into the bootloader any more (only SWD can).
 feat = pathlib.Path(sys.argv[1]) / "config" / "sl_openthread_features_config.h"
 f = feat.read_text()
 marker = "#define OPENTHREAD_CONFIG_PLATFORM_BOOTLOADER_MODE_ENABLE 1"
 if marker not in f:
     f = f.rstrip() + "\n\n/* TYZS13: Spinel RESET_BOOTLOADER -> Gecko-bootloader */\n" + marker + "\n"
     feat.write_text(f)
-print("ok", feat, "bootloader-mode aan")
+print("ok", feat, "bootloader mode on")

@@ -1,29 +1,30 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Rootfs-image naar de userdata-partitie van het panel schrijven, over de
-# USB-kabel (NCM, ssh admin@10.55.0.1) of Wi-Fi. Git Bash (Windows) of WSL.
+# Development tool (pre-A/B layout): write a rootfs image to the panel's
+# userdata partition over the USB cable (NCM, ssh admin@10.55.0.1) or Wi-Fi.
+# Git Bash (Windows) or WSL.
 #
 #   bash tools/flash-rootfs.sh <px30-rootfs.ext4> [host]
 #
-# - Het panel moet draaien vanaf een ANDERE root (bv. stback), want userdata
-#   wordt volledig overschreven. Het script weigert als userdata gemount is.
-# - Stroom: gzip -1 (lege ruimte = nullen, comprimeert sterk) -> ssh -> dd.
-# - Controle: sha256 van de partitie (na drop_caches) == sha256 van het image.
-# - Daarna, OP het panel zelf (geheimen verlaten het toestel niet):
-#   Wi-Fi-profielen, ssh-hostkeys, machine-id en Thread-netwerkdata van de
-#   draaiende root naar de nieuwe root kopiëren.
+# - The panel must run from ANOTHER root (e.g. stback), because userdata is
+#   overwritten completely. The script refuses if userdata is mounted.
+# - Stream: gzip -1 (free space = zeros, compresses well) -> ssh -> dd.
+# - Check: sha256 of the partition (after drop_caches) == sha256 of the image.
+# - Then, ON the panel itself (secrets never leave the device): copy the
+#   Wi-Fi profiles, ssh host keys, machine-id and Thread network data from
+#   the running root to the new root.
 # =====================================================================
 set -euo pipefail
-IMG="${1:?gebruik: $0 <px30-rootfs.ext4> [host]}"
+IMG="${1:?usage: $0 <px30-rootfs.ext4> [host]}"
 HOST="${2:-10.55.0.1}"
-# werkt in WSL (/mnt/c) en in Git Bash op Windows (/c); die laatste heeft de ssh-sleutel
+# works in WSL (/mnt/c) and in Git Bash on Windows (/c)
 C=/c; [ -d /mnt/c/Users ] && C=/mnt/c
 KH="${PX30_KNOWN_HOSTS:-$HOME/.ssh/known_hosts_px30}"
 SSH=(ssh -o UserKnownHostsFile="$KH" -o HostKeyAlias="${PX30_HOSTKEY_ALIAS:-$HOST}" -c aes128-gcm@openssh.com "admin@$HOST")
 PART=/dev/disk/by-partlabel/userdata
 
 if [[ "$IMG" == *.gz ]]; then
-  # al gecomprimeerd; "<sha256> <bytes>" van het ruwe image staat in $IMG.sha256
+  # already compressed; "<sha256> <bytes>" of the raw image is in $IMG.sha256
   read -r want size < "$IMG.sha256"
   SRC=(cat "$IMG")
 else
@@ -32,19 +33,19 @@ else
   SRC=(gzip -1 -c "$IMG")
 fi
 psize=$("${SSH[@]}" "sudo blockdev --getsize64 $PART")
-echo "image $size bytes, partitie $psize bytes, sha256 ${want:0:16}"
-[ "$size" -le "$psize" ] || { echo "FOUT: image groter dan partitie"; exit 1; }
+echo "image $size bytes, partition $psize bytes, sha256 ${want:0:16}"
+[ "$size" -le "$psize" ] || { echo "ERROR: image larger than the partition"; exit 1; }
 "${SSH[@]}" "! findmnt -S $PART >/dev/null && ! findmnt -S \$(readlink -f $PART) >/dev/null" \
-  || { echo "FOUT: userdata is gemount (panel draait ervan?)"; exit 1; }
+  || { echo "ERROR: userdata is mounted (is the panel running from it?)"; exit 1; }
 
 t0=$SECONDS
 "${SRC[@]}" | "${SSH[@]}" "gunzip -c | sudo dd of=$PART bs=4M iflag=fullblock conv=fsync status=none"
-echo "geschreven in $((SECONDS - t0)) s; controleren ..."
+echo "written in $((SECONDS - t0)) s; checking ..."
 got=$("${SSH[@]}" "sync; echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null; sudo head -c $size $PART | sha256sum | cut -d' ' -f1")
-[ "$got" = "$want" ] || { echo "FOUT: sha256 partitie ${got:0:16} != image ${want:0:16}"; exit 1; }
+[ "$got" = "$want" ] || { echo "ERROR: sha256 partition ${got:0:16} != image ${want:0:16}"; exit 1; }
 echo "sha256 OK"
 
-# identiteit van het toestel meenemen (op het panel; niets passeert de PC)
+# carry over the identity of the device (on the panel; nothing passes the PC)
 "${SSH[@]}" 'sudo sh -euc "
   M=\$(mktemp -d); mount '"$PART"' \$M
   [ -d /var/lib/iwd ] && { mkdir -p \$M/var/lib/iwd; cp -a /var/lib/iwd/. \$M/var/lib/iwd/; chmod 700 \$M/var/lib/iwd; }
@@ -54,4 +55,4 @@ echo "sha256 OK"
   echo \"  iwd-profielen: \$(ls \$M/var/lib/iwd | wc -l)\"
   umount \$M; rmdir \$M
 "'
-echo "klaar: identiteit (Wi-Fi, ssh-hostkeys, machine-id, Thread) overgenomen"
+echo "done: identity (Wi-Fi, ssh host keys, machine-id, Thread) carried over"

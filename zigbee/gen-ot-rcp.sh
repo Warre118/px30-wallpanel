@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Genereer (stap 1) het OpenThread-RCP-project voor de TYZS13 (EFR32MG13P732F512GM48).
+# Generate (step 1) the OpenThread RCP project for the TYZS13 (EFR32MG13P732F512GM48).
 set -euo pipefail
 T="$HOME/px30-build/silabs"
 export PATH="$T/slc_cli:$T/arm-gnu-toolchain-12.2.rel1-x86_64-arm-none-eabi/bin:$T/commander/commander-cli:$PATH"

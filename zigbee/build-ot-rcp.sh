@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stap 2: pinout zetten, bouwen en GBL maken voor de TYZS13-RCP.
+# Step 2: set the pinout, build and make the GBL for the TYZS13 RCP.
 set -euo pipefail
 T="$HOME/px30-build/silabs"
 export PATH="$T/arm-gnu-toolchain-12.2.rel1-x86_64-arm-none-eabi/bin:$T/commander/commander-cli:$PATH"
@@ -18,6 +18,6 @@ commander-cli gbl create "$DIST/$NAME.gbl" --app build/debug/ot-rcp.s37
 cp build/debug/ot-rcp.s37 "$DIST/$NAME.s37"
 mkdir -p "${PX30_OUT:-$HOME/px30-out}/zigbee" && cp "$DIST/$NAME".* "${PX30_OUT:-$HOME/px30-out}/zigbee"/
 sha256sum "$DIST/$NAME".*
-# Controle: zonder deze symbolen kan de RCP niet terug naar de bootloader (zie patch-ot-rcp.py)
+# Check: without these symbols the RCP cannot return to the bootloader (see patch-ot-rcp.py)
 arm-none-eabi-nm build/debug/ot-rcp.out | grep -E " T (otPlatResetToBootloader|bootloader_rebootAndInstall)$" | wc -l | grep -qx 2 \
-  && echo "bootloader-terugkeer: OK" || { echo "FOUT: geen bootloader-terugkeer in image"; exit 1; }
+  && echo "return to bootloader: OK" || { echo "ERROR: no return to the bootloader in the image"; exit 1; }

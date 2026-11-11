@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Genereer (stap 1) het EmberZNet NCP-UART-HW-project (RTS/CTS) voor de TYZS13
+# Generate (step 1) the EmberZNet NCP UART HW project (RTS/CTS) for the TYZS13
 # (EFR32MG13P732F512GM48), Gecko SDK 4.4.6 / EmberZNet 7.4.x.
 # Extra component: bootloader_interface -> EZSP launchStandaloneBootloader werkt
-# (nodig om met universal-silabs-flasher terug naar Thread te gaan).
+# (needed to go back to Thread with universal-silabs-flasher).
 set -euo pipefail
 T="$HOME/px30-build/silabs"
 export PATH="$T/slc_cli:$T/arm-gnu-toolchain-12.2.rel1-x86_64-arm-none-eabi/bin:$T/commander/commander-cli:$PATH"

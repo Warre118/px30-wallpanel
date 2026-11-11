@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Debugvariant van de DTB: UART5 (Zigbee) zonder RTS/CTS, zodat de kernelconsole
-op ttyS5 niet stilvalt wanneer de Zigbee-module CTS laag trekt (haar buffer
-loopt vol met consoletekst). Werkt op de gedecompileerde .dts (dtc -O dts).
-Gebruik: dtb-uart5-noflow.py <in.dts> <uit.dts>
+Debug variant of the DTB: UART5 (Zigbee) without RTS/CTS, so the kernel
+console on ttyS5 does not stall when the Zigbee module pulls CTS low (its
+buffer fills up with console text). Works on the decompiled .dts (dtc -O dts).
+Usage: dtb-uart5-noflow.py <in.dts> <out.dts>
 """
 import re, sys
 
@@ -16,4 +16,4 @@ assert m and "uart-has-rtscts;" in blk, "UART5-node niet zoals verwacht"
 nb = blk.replace(m.group(0), f"pinctrl-0 = <{m.group(1)}>;").replace("\n\t\tuart-has-rtscts;", "")
 assert "rtscts" not in nb
 open(sys.argv[2], "w").write(s[:i] + nb + s[j:])
-print("uart5: enkel xfer-pins, geen RTS/CTS")
+print("uart5: xfer pins only, no RTS/CTS")

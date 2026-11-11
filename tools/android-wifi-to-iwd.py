@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Zet het Wi-Fi-netwerk dat Android nu gebruikt om naar een iwd-profiel.
-Gebruik: android-wifi-to-iwd.py <WifiConfigStore.xml> <dumpsys-wifi.txt> <uitmap>
-Drukt NOOIT het wachtwoord of de SSID af; schrijft enkel <uitmap>/<naam>.psk (0600).
+Convert the Wi-Fi network Android currently uses into an iwd profile.
+Usage: android-wifi-to-iwd.py <WifiConfigStore.xml> <dumpsys-wifi.txt> <outdir>
+NEVER prints the password or the SSID; only writes <outdir>/<name>.psk (0600).
 """
 import html, os, re, sys
 import xml.etree.ElementTree as ET
 
 store, dump, out = sys.argv[1:4]
 cur = re.search(r'mWifiInfo SSID: "?(.*?)"?, BSSID', open(dump, errors="replace").read())
-assert cur, "geen actieve Wi-Fi-verbinding gevonden in dumpsys"
+assert cur, "no active Wi-Fi connection found in dumpsys"
 current = cur.group(1)
 
 nets = {}
@@ -18,7 +18,7 @@ for net in ET.parse(store).getroot().iter("Network"):
     ssid, psk = vals.get("SSID"), vals.get("PreSharedKey")
     if ssid and psk:
         nets[ssid.strip('"')] = psk
-assert current in nets, "actief netwerk heeft geen opgeslagen PSK"
+assert current in nets, "the active network has no stored PSK"
 psk = nets[current]
 
 if psk.startswith('"'):
@@ -27,7 +27,7 @@ else:
     assert re.fullmatch(r"[0-9a-fA-F]{64}", psk), "onbekend PSK-formaat"
     body = "[Security]\nPreSharedKey=%s\n" % psk.lower()
 
-# iwd-bestandsnaam: leesbaar als enkel [A-Za-z0-9 _-], anders =<hex>
+# iwd file name: readable if only [A-Za-z0-9 _-], else =<hex>
 name = current if re.fullmatch(r"[A-Za-z0-9 _-]+", current) else "=" + current.encode().hex()
 os.makedirs(out, mode=0o700, exist_ok=True)
 path = os.path.join(out, name + ".psk")

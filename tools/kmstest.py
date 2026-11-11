@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""KMS-testbeeld zonder libdrm: rood/groen/blauw/wit-banden, daarna kleurvlakken.
+"""KMS test pattern without libdrm: red/green/blue/white bars, then colour fields.
 
-Gebruik (root, zonder andere DRM-master, dus kiosk eerst stoppen):
-    python3 kmstest.py [seconden]
-Draait volledig via een dumb buffer op de CPU -> test VOP/DSI/paneel los van GPU/Cog.
+Usage (root, without another DRM master, so stop the kiosk first):
+    python3 kmstest.py [seconds]
+Runs entirely from a dumb buffer on the CPU -> tests VOP/DSI/panel apart from GPU/Cog.
 """
 import array, fcntl, mmap, os, struct, sys, time
 
@@ -35,7 +35,7 @@ for cid in cons:
     conn = cid
     break
 else:
-    sys.exit("geen connector met modes")
+    sys.exit("no connector with modes")
 w, h = struct.unpack_from("HH", mode, 4)[0], struct.unpack_from("H", mode, 14)[0]
 print(f"connector {conn} crtc {crtcs[0]} mode {w}x{h} '{mode[36:68].rstrip(bytes(1)).decode()}'")
 
@@ -55,14 +55,14 @@ def fill(colors):
 
 conns = array.array("I", [conn])
 if "reset" in sys.argv[2:]:
-    # Volledige modeset forceren: CRTC eerst uit (geen fb, geen mode, geen connectors).
+    # Force a full modeset: CRTC off first (no fb, no mode, no connectors).
     fcntl.ioctl(fd, SETCRTC, bytearray(struct.pack("QIIIIIII", 0, 0, crtcs[0], 0, 0, 0, 0, 0) + bytes(68)))
-    print("CRTC uit", flush=True)
+    print("CRTC off", flush=True)
     time.sleep(2)
 s = bytearray(struct.pack("QIIIIIII", ptr(conns), 1, crtcs[0], fb, 0, 0, 0, 1) + mode)
 fill([0xFF0000, 0x00FF00, 0x0000FF, 0xFFFFFF])
 fcntl.ioctl(fd, SETCRTC, s)
-print("banden rood/groen/blauw/wit staan op het scherm")
+print("red/green/blue/white bars are on the screen")
 t_end = time.time() + secs
 seq = [0xFFFFFF, 0xFF0000, 0x00FF00, 0x0000FF]
 i = 0

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Log touch-events (ABS_MT_POSITION_X/Y, BTN_TOUCH) van een input-device.
-Gebruik: sudo python3 touchlog.py /dev/input/eventN <seconden>"""
+"""Log touch-events (ABS_MT_POSITION_X/Y, BTN_TOUCH) from an input device.
+Usage: sudo python3 touchlog.py /dev/input/eventN <seconds>"""
 import struct, sys, time, select
 dev, dur = sys.argv[1], float(sys.argv[2])
 f = open(dev, 'rb', buffering=0); t_end = time.time() + dur

@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-Bouwt recovery.img voor de vendor-U-Boot van het Smatek PX30-panel:
-een Android-bootimage v0 (zelfde indeling als de originele boot/recovery.img)
-met onze mainline-kernel, GEEN ramdisk, en als "second" een Rockchip
-RSCE-resource met enkel rk-kernel.dtb.
+Builds a boot/recovery image for the vendor U-Boot of the Smatek PX30 panel:
+an Android boot image v0 (same layout as the original boot/recovery.img)
+with our mainline kernel, and as "second" a Rockchip RSCE resource holding
+only rk-kernel.dtb.
 
-Gebruik: make-recovery-img.py <Image> <dtb> <cmdline.txt> <uit.img> [initramfs.cpio.gz]
-Met initramfs: de PX30-initramfs (initramfs/), voor boot (px30.mode=normal)
-en recovery (px30.mode=rescue). Zonder: lege cpio, root= uit de cmdline.
-Schrijft niets naar het panel.
+Usage: make-recovery-img.py <Image> <dtb> <cmdline.txt> <out.img> [initramfs.cpio.gz]
+With initramfs: the PX30 initramfs (initramfs/), for boot (px30.mode=normal)
+and recovery (px30.mode=rescue). Without: an empty cpio, root= from the cmdline.
+Writes nothing to the panel.
 """
 import hashlib, struct, sys
 
 PAGE = 2048
 BLK = 512
-PART_SIZE = 64 << 20          # recovery-partitie = 0x20000 sectoren
-# laadadressen zoals in het origineel (vendor-U-Boot gebruikt eigen adressen)
+PART_SIZE = 64 << 20          # recovery partition = 0x20000 sectors
+# load addresses as in the original (the vendor U-Boot uses its own addresses)
 KERNEL_ADDR, RAMDISK_ADDR, SECOND_ADDR, TAGS_ADDR = 0x10008000, 0x11000000, 0x10F00000, 0x10000100
-OS_VERSION = 0x10040137       # overgenomen uit de originele recovery.img (Android 8.1)
+OS_VERSION = 0x10040137       # taken from the original recovery.img (Android 8.1)
 
 
 def pad(b, n):
@@ -25,11 +25,11 @@ def pad(b, n):
 
 
 def rsce(files):
-    """Rockchip resource: 1 blok header, 1 blok per entry, data blok-uitgelijnd."""
+    """Rockchip resource: 1 block header, 1 block per entry, data block-aligned."""
     hdr = struct.pack("<4sHHBBBxI", b"RSCE", 0, 0, 1, 1, 1, len(files))
     hdr = pad(hdr, BLK)
     entries, data = b"", b""
-    off = 1 + len(files)                       # in blokken
+    off = 1 + len(files)                       # in blocks
     for name, content in files:
         e = b"ENTR" + name.encode().ljust(256, b"\0") + struct.pack("<II", off + len(data) // BLK, len(content))
         entries += pad(e, BLK)
@@ -38,9 +38,9 @@ def rsce(files):
 
 
 def empty_cpio():
-    """Minimale initramfs: enkel /dev en de TRAILER, GEEN /init. De kernel pakt
-    ze uit, vindt geen /init en mount daarna gewoon root= (prepare_namespace).
-    Nodig omdat de vendor-U-Boot een recovery zonder ramdisk niet start."""
+    """Minimal initramfs: only /dev and the TRAILER, NO /init. The kernel unpacks
+    it, finds no /init and then simply mounts root= (prepare_namespace).
+    Needed because the vendor U-Boot does not start a recovery without a ramdisk."""
     def entry(name, mode, nlink):
         n = name.encode() + b"\0"
         h = b"070701" + b"".join(b"%08X" % v for v in (0, mode, 0, 0, nlink, 0, 0, 0, 0, 0, 0, len(n), 0))
@@ -57,7 +57,7 @@ def main(image, dtb, cmdfile, out, initrd=None):
     assert len(cmdline) < 512, "cmdline te lang (max 511)"
     second = rsce([("rk-kernel.dtb", fdt)])
     ramdisk = open(initrd, "rb").read() if initrd else empty_cpio()
-    # id = sha1 over (kernel, len, ramdisk, len, second, len) zoals mkbootimg
+    # id = sha1 over (kernel, len, ramdisk, len, second, len) like mkbootimg
     sha = hashlib.sha1()
     for blob in (kernel, ramdisk, second):
         sha.update(blob)
@@ -70,7 +70,7 @@ def main(image, dtb, cmdfile, out, initrd=None):
     img = pad(h, PAGE) + pad(kernel, PAGE) + pad(ramdisk, PAGE) + pad(second, PAGE)
     assert len(img) <= PART_SIZE, f"te groot voor recovery: {len(img)}"
     open(out, "wb").write(img)
-    print(f"{out}: {len(img)} bytes ({len(img) / PART_SIZE:.0%} van recovery)")
+    print(f"{out}: {len(img)} bytes ({len(img) / PART_SIZE:.0%} of the partition)")
     print(f"  kernel {len(kernel)}  ramdisk {len(ramdisk)}  second(RSCE) {len(second)}  dtb {len(fdt)}")
     print(f"  cmdline: {cmdline.decode()}")
     print(f"  sha256: {hashlib.sha256(img).hexdigest()}")

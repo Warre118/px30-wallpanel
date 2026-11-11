@@ -1,7 +1,7 @@
 /*
- * regdump: dump 32-bit MMIO-registers via /dev/mem (alleen lezen), zodat de
- * displaytoestand onder Android en Debian vergeleken kan worden.
- * Gebruik: regdump <basis-hex> <lengte-hex> [stap-hex]
+ * regdump: dump 32-bit MMIO registers through /dev/mem (read only), to compare
+ * the display state under Android and Debian.
+ * Usage: regdump <base-hex> <length-hex> [step-hex]
  * Bouwen: aarch64-linux-gnu-gcc -static -O2 -o regdump regdump.c
  */
 #include <fcntl.h>
@@ -13,7 +13,7 @@
 
 int main(int argc, char **argv)
 {
-	if (argc < 3) { fprintf(stderr, "gebruik: %s <basis> <lengte> [stap]\n", argv[0]); return 2; }
+	if (argc < 3) { fprintf(stderr, "usage: %s <base> <length> [step]\n", argv[0]); return 2; }
 	unsigned long base = strtoul(argv[1], 0, 16), len = strtoul(argv[2], 0, 16);
 	unsigned long step = argc > 3 ? strtoul(argv[3], 0, 16) : 4;
 	int fd = open("/dev/mem", O_RDONLY | O_SYNC);
