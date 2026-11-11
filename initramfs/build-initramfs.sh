@@ -51,7 +51,7 @@ for f in usr/sbin/e2fsck usr/sbin/mke2fs usr/sbin/resize2fs usr/sbin/dumpe2fs \
 done
 # shared libraries, recursively (NEEDED entries of everything copied)
 find_lib() { for d in usr/lib/aarch64-linux-gnu lib/aarch64-linux-gnu usr/lib; do
-  [ -e "$B/$d/$1" ] && { echo "$d/$1"; return; }; done; echo "ONTBREEKT: $1" >&2; exit 1; }
+  [ -e "$B/$d/$1" ] && { echo "$d/$1"; return; }; done; echo "MISSING: $1" >&2; exit 1; }
 declare -A seen
 while [ ${#LIBS[@]} -gt 0 ]; do
   f="${LIBS[0]}"; LIBS=("${LIBS[@]:1}")

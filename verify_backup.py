@@ -39,7 +39,7 @@ def check(label, got, dev):
     print(f"{ok} {label:34s} {got[:16]}  panel {str(want)[:16]}")
 
 size = os.path.getsize(full)
-print(f"emmc-full.img: {size} bytes, verwacht {expected_full} -> {'OK' if size == expected_full else 'FOUT'}")
+print(f"emmc-full.img: {size} bytes, expected {expected_full} -> {'OK' if size == expected_full else 'WRONG'}")
 if "mmcblk1" in panel:
     check("emmc-full.img (geheel)", sha(full), "mmcblk1")
 man = os.path.join(run, "chunks.sha256")

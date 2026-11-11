@@ -1,8 +1,9 @@
 """
 px30_hotspot - Wi-Fi setup through a temporary access point (used by px30-panel).
 
-NOT YET TESTED ON THE HARDWARE: built and unit-tested on a PC with a fake iwd
-(tests/test_hotspot.py). See docs/usage.md, "Wi-Fi setup (hotspot)".
+Tested on the hardware once (2026-11-12, after a factory reset); unit tests
+with a fake iwd in tests/test_hotspot.py. See docs/usage.md, "Wi-Fi setup
+(hotspot)".
 
 Flow
   1. No Wi-Fi network is known, or the known network has been unreachable for

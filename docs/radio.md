@@ -112,7 +112,8 @@ main flash and tokens. Check afterwards that the bootloader is still there.
 
 ## Switching stacks: `px30-radio`
 
-**Untested on hardware.**
+Tested on the hardware: `status`, `probe`, `use thread` and `use off`.
+**Flashing (`switch`, `use --flash`) does not work yet.**
 
 ```
 px30-radio status                         stack, channel, firmware, service

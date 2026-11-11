@@ -35,18 +35,21 @@ Tested on one panel (ST-PX30-T6E, 2021 board). Other Smatek PX30 variants
 | Wi-Fi | RTL8723DS (rtw88); the only network interface |
 | Audio | speaker via the RK809 codec |
 | Thread | TYZS13 module as OpenThread RCP + otbr-agent on the panel |
-| USB | CDC-NCM gadget on the micro-USB OTG port: `ssh admin@10.55.0.1` |
+| USB | CDC-NCM gadget on the micro-USB OTG port: `ssh admin@10.55.0.1`; rescue mode: `ssh root@10.55.0.1` without a password |
 | System | A/B updates over Wi-Fi, fallback after 3 failed boots, rescue mode, reinstall, factory reset |
-| Setup | phone setup page (HA login incl. 2FA, MQTT, SSH key or password, services) |
+| Wi-Fi setup hotspot | without a known network the panel opens `PX30-xxxx` with two QR codes; the phone picks the home network ([docs/usage.md](docs/usage.md#wi-fi-setup-hotspot)). Tested once on the hardware after a factory reset |
+| Setup | phone setup page (HA login incl. 2FA, MQTT, SSH key or password, radio module, sensors, services) |
+| Radio choice | Thread / Zigbee / off without flashing; the stack is read from the chip after a reset (`px30-radio probe`, `use`) |
 
 | Does not work / untested | |
 |---|---|
-| Bluetooth | **does not work.** The firmware download completes, but the chip's HCI layer hangs afterwards. See [docs/development-notes.md](docs/development-notes.md#bluetooth). |
+| Bluetooth | **does not work, and probably never did.** The firmware download completes, but the chip's HCI layer hangs afterwards. See [docs/development-notes.md](docs/development-notes.md#bluetooth). |
 | Microphone | not set up (PDM microphone, probably present) |
-| Zigbee | the EmberZNet NCP firmware builds, but the switch between Thread and Zigbee (`px30-radio`) is **untested on hardware** |
+| Radio flashing | flashing another stack or version on the module (`px30-radio switch`, `use --flash`, the module update in HA) **does not work yet**. Choosing between stacks without flashing works |
+| Zigbee | the EmberZNet NCP firmware builds, but has not run on the panel (needs the flashing above) |
 | Radio module | first flash of the bootloader-capable RCP needs **SWD** (a cheap debug probe); see [docs/radio.md](docs/radio.md) |
 | Updates from GitHub | `px30-update` is a stub; updates are pushed from a PC (`tools/px30-ota.sh`) |
-| Wi-Fi setup hotspot | **built, untested on hardware**: without a working Wi-Fi network the panel opens `PX30-xxxx` and a QR flow for the phone ([docs/usage.md](docs/usage.md#wi-fi-setup-hotspot)); until tested, set Wi-Fi at build time or over USB |
+| Hotspot details | the Cancel button and the 5-minute retry of a known network are untested |
 | Fresh install | the full install path from stock Android is described below, but was done step by step on the development panel, not end to end with this exact script set |
 | Other | buttons (adc-keys), the MBI5041 LED driver, the T&H connector and the second UART are not used |
 

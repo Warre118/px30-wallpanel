@@ -65,10 +65,10 @@ Open setup again at any time:
 
 ### Wi-Fi setup (hotspot)
 
-> **Not yet tested on the hardware.** The code is in the image from the next
-> release on. It was built and tested on a PC only (`tests/`). Until it has
-> been tried on the panel, keep a USB cable or a baked-in Wi-Fi profile
-> (`WIFI_SSID`/`WIFI_PSK`) as a fallback.
+> Tested on the hardware once (after a factory reset, set up from a phone and
+> from a PC over USB). The Cancel button and the 5-minute retry of a known
+> network are not tested yet. Keep a USB cable at hand the first time:
+> rescue mode over USB always works.
 
 When the panel has no Wi-Fi network, it opens its own network so you can set
 one up with your phone:
