@@ -41,10 +41,11 @@
     <button data-a="setup">Set up with phone</button>
     <button data-p="services">Services</button>
     <button data-a="kiosk">Restart kiosk</button>
+    <button class="warn" data-c="hotspot">Wi-Fi setup</button>
     <button class="warn" data-c="reboot">Restart panel</button>
     <button class="warn" data-c="rescue">Rescue mode (USB)</button>
     <button class="warn" data-c="reinstall">Reinstall</button>
-    <button class="bad" data-c="factory-reset" style="grid-column:span 2">Factory reset (erase everything)</button>
+    <button class="bad" data-c="factory-reset">Factory reset</button>
   </div>
 </div>
 
@@ -56,6 +57,7 @@ const K = new URLSearchParams(location.search).get("k");
 const $ = s => document.querySelector(s);
 const TXT = {
   reboot: ["Restart the panel?", "The panel restarts (about 40 s)."],
+  hotspot: ["Wi-Fi setup?", "The panel leaves its current Wi-Fi and opens its own network PX30-.... Join it with your phone and choose the new network. Home Assistant is unreachable meanwhile."],
   rescue: ["Rescue mode?", "The panel restarts into rescue mode. It is then only reachable over USB: ssh root@10.55.0.1. Run 'reboot' there to come back."],
   reinstall: ["Reinstall?", "The system is reinstalled from the factory copy. Settings (Wi-Fi, keys, Thread, MQTT) are kept."],
   "factory-reset": ["Factory reset?", "Reinstall the system AND erase ALL settings: Wi-Fi, Home Assistant login, MQTT, SSH access, Thread/Zigbee network data. This cannot be undone."],

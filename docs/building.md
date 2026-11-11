@@ -132,3 +132,12 @@ Install with `tools/px30-install.sh` (first time) or `tools/px30-ota.sh`
 | `tools/ezsp-probe.c` | asks a Silicon Labs NCP for its EZSP/EmberZNet version |
 | `tools/rtk_hciattach/`, `tools/btuart-free/` | Bluetooth experiments |
 | `boot/dtb-uart5-noflow.py` | debug DTB with a kernel console on UART5 |
+
+## Tests
+
+Parts of the panel software can be tested on a PC without the hardware:
+
+```bash
+python3 -m unittest discover -s tests -v     # Wi-Fi hotspot logic (fake iwd), Windows or Linux
+python3 tests/smoke_panel_hotspot.py         # px30-panel + hotspot dry run (Linux/WSL, needs openssl)
+```

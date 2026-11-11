@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PX30 panel Wi-Fi setup</title>
+<style>
+  :root { --bg:#101418; --fg:#e8eef2; --mut:#8a98a4; --card:#1a222a; --acc:#2f81f7; --bad:#ff8f84; --ok:#7ee2a8; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:17px/1.4 system-ui,sans-serif; }
+  .wrap { max-width:480px; margin:0 auto; padding:18px; }
+  h1 { font-size:22px; margin:0 0 10px; }
+  .card { background:var(--card); border-radius:12px; padding:14px; margin:12px 0; }
+  label { display:block; margin:10px 0 4px; color:var(--mut); font-size:14px; }
+  input, select, button { width:100%; font:inherit; padding:11px; border-radius:10px; border:1px solid #2a3846;
+    background:#0c1014; color:var(--fg); }
+  button { background:var(--acc); border:0; margin-top:14px; font-weight:bold; }
+  button.sec { background:#22303b; font-weight:normal; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .row input[type=checkbox] { width:auto; }
+  .mut { color:var(--mut); font-size:14px; }
+  .err { color:var(--bad); }
+  .ok { color:var(--ok); }
+  ul { list-style:none; padding:0; margin:0; }
+  li { padding:11px 8px; border-bottom:1px solid #22303b; display:flex; justify-content:space-between; cursor:pointer; }
+  li.sel { background:#22303b; border-radius:8px; }
+  .hide { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Connect the panel to your Wi-Fi</h1>
+
+  <div class="card" id="pinbox">
+    <label for="pin">PIN shown on the panel</label>
+    <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+    <button id="pinok">Continue</button>
+  </div>
+
+  <div id="form" class="hide">
+    <div class="card">
+      <b>Your Wi-Fi network</b>
+      <ul id="nets"></ul>
+      <div class="row" style="margin-top:10px"><input type="checkbox" id="other"><span>Other / hidden network</span></div>
+      <div id="otherbox" class="hide">
+        <label for="ssid">Network name</label>
+        <input id="ssid" autocapitalize="off" autocomplete="off" spellcheck="false">
+      </div>
+      <label for="pw">Password</label>
+      <input id="pw" type="password" autocomplete="off">
+      <div class="row" style="margin-top:6px"><input type="checkbox" id="show"><span class="mut">show password</span></div>
+      <button id="join">Connect</button>
+      <p class="err" id="err"></p>
+    </div>
+    <p class="mut">The panel leaves its own network PX30-... to join yours. Your phone then
+      switches back to your usual network by itself.</p>
+  </div>
+
+  <div id="wait" class="hide card">
+    <p id="wmsg"><b>Connecting the panel...</b></p>
+    <p class="mut" id="whint">Keep this page open. Make sure your phone is back on your home Wi-Fi.
+      This page continues by itself when it finds the panel.</p>
+    <p class="mut">Not continuing after a minute? The panel's screen shows a QR code for the next
+      step: scan it with your phone.</p>
+  </div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+let PIN = location.hash.slice(1), host = "", chosen = null, nets = [];
+
+async function api(path, body) {
+  const o = { headers:{ "X-Pin":PIN }, cache:"no-store" };
+  if (body) { o.method = "POST"; o.headers["Content-Type"] = "application/json"; o.body = JSON.stringify(body); }
+  const r = await fetch(path, o);
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 403) throw new Error("pin");
+  return [r.ok, j];
+}
+
+function bars(dbm) { return dbm >= -55 ? "▂▄▆█" : dbm >= -67 ? "▂▄▆" : dbm >= -78 ? "▂▄" : "▂"; }
+
+function render() {
+  const ul = $("#nets"); ul.innerHTML = "";
+  if (!nets.length) ul.innerHTML = '<li class="mut">No networks found before the hotspot started. Use "Other".</li>';
+  for (const n of nets) {
+    const li = document.createElement("li");
+    const a = document.createElement("span"); a.textContent = n.ssid + (n.security === "open" ? "  (open)" : "");
+    const b = document.createElement("span"); b.className = "mut"; b.textContent = bars(n.signal);
+    li.append(a, b);
+    li.classList.toggle("sel", chosen === n);
+    li.onclick = () => { chosen = n; $("#other").checked = false; $("#otherbox").classList.add("hide"); render(); };
+    ul.appendChild(li);
+  }
+}
+
+async function start() {
+  try {
+    const [, j] = await api("/api/networks");
+    nets = j.networks || [];
+    $("#pinbox").classList.add("hide"); $("#form").classList.remove("hide");
+    render();
+    const [, s] = await api("/api/state");
+    host = s.host || "";
+    if (s.error) $("#err").textContent = s.error;
+  } catch (e) {
+    $("#pinbox").classList.remove("hide");
+    if (PIN) $("#pinok").textContent = "Wrong PIN - try again";
+  }
+}
+
+$("#pinok").onclick = () => { PIN = $("#pin").value.trim(); start(); };
+$("#other").onchange = e => { $("#otherbox").classList.toggle("hide", !e.target.checked); if (e.target.checked) { chosen = null; render(); } };
+$("#show").onchange = e => { $("#pw").type = e.target.checked ? "text" : "password"; };
+
+$("#join").onclick = async () => {
+  const other = $("#other").checked;
+  const ssid = other ? $("#ssid").value : (chosen && chosen.ssid);
+  const pw = $("#pw").value;
+  $("#err").textContent = "";
+  if (!ssid) { $("#err").textContent = "Pick a network first."; return; }
+  if (pw && (pw.length < 8 || pw.length > 64)) { $("#err").textContent = "A Wi-Fi password has 8 to 63 characters."; return; }
+  if (!pw && !(chosen && chosen.security === "open") && !other) { $("#err").textContent = "Enter the password."; return; }
+  try {
+    const [ok, j] = await api("/api/join", { ssid, password:pw, hidden:other });
+    if (!ok) { $("#err").textContent = j.msg || "error"; return; }
+    host = j.host || host;
+    $("#pw").value = "";
+    $("#form").classList.add("hide"); $("#wait").classList.remove("hide");
+    waitLoop();
+  } catch (e) { $("#err").textContent = e.message === "pin" ? "PIN expired: scan the QR code again." : "No answer from the panel."; }
+};
+
+function probe(url, ms) {
+  const c = new AbortController(); const t = setTimeout(() => c.abort(), ms);
+  return fetch(url, { mode:"no-cors", cache:"no-store", signal:c.signal }).then(() => true, () => false).finally(() => clearTimeout(t));
+}
+
+async function waitLoop() {
+  const t0 = Date.now();
+  for (;;) {
+    await new Promise(r => setTimeout(r, 3000));
+    // back on the hotspot: the join failed
+    try {
+      const c = new AbortController(); setTimeout(() => c.abort(), 2500);
+      const r = await fetch("/api/state", { headers:{ "X-Pin":PIN }, cache:"no-store", signal:c.signal });
+      if (r.ok) {
+        const s = await r.json();
+        if (s.phase === "ap") {
+          $("#wait").classList.add("hide"); $("#form").classList.remove("hide");
+          $("#err").textContent = s.error || "The panel could not connect.";
+          return;
+        }
+      }
+    } catch (e) { /* not on the hotspot (any more) */ }
+    // the panel on the home network
+    if (host && await probe(`http://${host}.local/ping`, 2500)) {
+      $("#wmsg").innerHTML = '<b class="ok">Connected!</b> Opening the next step...';
+      location.href = `https://${host}.local:8443/setup#${PIN}`;
+      return;
+    }
+    if (Date.now() - t0 > 90000) $("#whint").textContent = "Still looking for the panel. If your phone is on your home Wi-Fi, scan the QR code on the panel's screen.";
+  }
+}
+
+if (PIN) start();
+</script>
+</body>
+</html>

@@ -57,9 +57,66 @@ Open setup again at any time:
 - from Home Assistant (button "Set up with phone");
 - over SSH with `sudo px30-panel setup`.
 
-### Wi-Fi
+### Wi-Fi setup (hotspot)
 
-There is no hotspot setup yet. Choose one of these:
+> **Not yet tested on the hardware.** The code is in the image from the next
+> release on. It was built and tested on a PC only (`tests/`). Until it has
+> been tried on the panel, keep a USB cable or a baked-in Wi-Fi profile
+> (`WIFI_SSID`/`WIFI_PSK`) as a fallback.
+
+When the panel has no Wi-Fi network, it opens its own network so you can set
+one up with your phone:
+
+1. The panel screen shows **two QR codes**, the network name `PX30-xxxx` and
+   its password (new for every session).
+2. Scan the **first** QR code: the phone joins `PX30-xxxx`. That network has
+   no internet. The phone shows a "sign in to network" page that tells you to
+   scan the second code.
+3. Scan the **second** QR code (`http://192.168.4.1/setup#PIN`). It opens the
+   Wi-Fi page in your browser. Pick your home network (or type a hidden
+   network's name) and enter its password.
+4. The panel leaves its own network and joins yours. Your phone falls back to
+   your usual network by itself.
+   - **It worked:** the page waits until it finds the panel at
+     `http://<hostname>.local`. It then opens the normal setup
+     (`https://<hostname>.local:8443/setup`, same PIN). If your phone cannot
+     resolve `.local` names, scan the QR code that the panel screen now shows:
+     it holds the panel's new IP address.
+   - **Wrong password, or network not found:** the panel opens `PX30-xxxx`
+     again with the same name and password. Your phone rejoins it, and the
+     page shows the error so you can try again.
+
+When the hotspot starts:
+
+- at boot, when no Wi-Fi network is known (first boot, after a factory reset)
+  and none has connected within 45 seconds;
+- when the known network has been unreachable for **5 minutes** (wrong
+  network, router replaced). While no one is using the setup page, the panel
+  tries the known network again every 5 minutes, so a router that was only
+  off for a while is picked up again by itself;
+- from the rescue menu ("Wi-Fi setup"), or over SSH with
+  `sudo px30-panel hotspot`. This leaves the current network.
+
+If a known network exists, the hotspot screen has a **Cancel** button that
+returns to normal Wi-Fi.
+
+Notes:
+
+- Android: if the browser cannot open `http://192.168.4.1/setup`, turn off
+  mobile data for a moment, or continue on the "sign in" page itself (enter
+  the PIN by hand).
+- iOS: on the "sign in" page, do not tap **Cancel** (iOS may leave the
+  network); scan the second QR code with the camera instead.
+- Security: the hotspot uses WPA2 with a random password that is shown only
+  on the panel's screen, and the setup page needs the PIN on top of that. Wi-Fi
+  names and passwords are never written to the log.
+- How it works: iwd's own access-point mode and DHCP server, a small DNS
+  server that answers every name with `192.168.4.1`, and a web server on port
+  80. All of it lives in px30-panel
+  (`/usr/local/lib/px30/px30_hotspot.py`), so there are no extra packages or
+  services.
+
+Other ways to set up Wi-Fi:
 
 - build the image with `WIFI_SSID`/`WIFI_PSK` ([building.md](building.md));
 - connect over USB (`ssh admin@10.55.0.1`) and run `iwctl station wlan0
@@ -84,6 +141,7 @@ factory reset).
 | Set up with phone | the QR setup described above |
 | Services | switch optional services on/off |
 | Restart kiosk | restarts the browser |
+| Wi-Fi setup | start the Wi-Fi hotspot (see above); leaves the current network |
 | Restart panel | reboot |
 | Rescue mode | reboot into rescue mode (`ssh root@10.55.0.1` over USB) |
 | Reinstall | reinstall the system from the factory copy; settings are kept |

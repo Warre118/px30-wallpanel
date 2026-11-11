@@ -17,6 +17,11 @@ px30-panel - on-screen rescue menu and first-time setup of the PX30 wall panel.
   The setup server only runs while the setup screen is shown (max 20 min).
 * Without /data/kiosk/kiosk.conf (first boot / factory reset) the panel starts
   in setup mode.
+* Wi-Fi setup (px30_hotspot, NOT YET TESTED ON THE HARDWARE): without a known
+  Wi-Fi network, or when it is unreachable for 5 min, the panel opens its own
+  network PX30-xxxx and shows two QR codes (join it, then open the setup
+  page); after the join the normal setup continues with the same PIN. Also
+  from the menu ("Wi-Fi setup") or `px30-panel hotspot`.
 
 Kiosk contract (kiosk-start): if /run/px30-panel/url exists, Cog opens that
 URL instead of the dashboard; px30-panel restarts Cog (pkill -x cog) to
@@ -28,6 +33,12 @@ matching Host/Origin, so a web page in the kiosk cannot call it.
 import base64, glob, hashlib, html, http.server, ipaddress, json, os, re, secrets
 import shlex, socket, ssl, struct, subprocess, sys, threading, time, urllib.error
 import urllib.parse, urllib.request, fcntl
+
+sys.path.insert(0, "/usr/local/lib/px30")
+try:
+    import px30_hotspot
+except ImportError:                # older image: no Wi-Fi hotspot
+    px30_hotspot = None
 
 RUN = "/run/px30-panel"
 URL_FILE = f"{RUN}/url"
@@ -66,7 +77,7 @@ class Kiosk:
     def __init__(self):
         os.makedirs(RUN, exist_ok=True)
         os.chmod(RUN, 0o755)
-        self.mode = None          # None (dashboard) / "menu" / "setup"
+        self.mode = None          # None (dashboard) / "menu" / "setup" / "hotspot"
         self.token = None         # token of the current local page
         self.touched = time.monotonic()
         self.once_timer = None
@@ -203,6 +214,11 @@ def act(name):
     if name == "setup":
         SETUP.start()
         return True, "setup started"
+    if name == "hotspot":
+        if not HOTSPOT:
+            return False, "not available in this version"
+        HOTSPOT.start()
+        return True, "starting the Wi-Fi hotspot..."
     if name == "ssh_on":
         rc, out = sh("systemctl", "enable", "--now", "ssh.service")
         return rc == 0, out or "SSH on"
@@ -342,6 +358,24 @@ def dash_url_clean(url):
 
 
 # ------------------------------------------------------------- setup session
+def qr_svg(text):
+    """QR code as SVG (python3-qrcode in a subprocess: the module is big and
+    only needed for a moment)."""
+    code = ("import sys, qrcode, qrcode.image.svg\n"
+            "img = qrcode.make(sys.stdin.read(), image_factory=qrcode.image.svg.SvgPathImage, box_size=12, border=2)\n"
+            "sys.stdout.write(img.to_string(encoding='unicode'))")
+    try:
+        # text on stdin, not in argv: the hotspot QR code holds its passphrase
+        p = subprocess.run([sys.executable, "-c", code], input=text,
+                           capture_output=True, text=True, timeout=20)
+        if p.returncode:
+            log("qr:", p.stderr.strip()[-200:])
+        return p.stdout if p.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log("qr:", e)
+        return ""
+
+
 class Setup:
     def __init__(self):
         self.active = False
@@ -367,9 +401,10 @@ class Setup:
         fp = hashlib.sha256(der).hexdigest().upper()
         return crt, key, ":".join(fp[i:i + 2] for i in range(0, 12, 2))
 
-    def start(self):
+    def start(self, pin=None):
+        """pin: keep the PIN of the Wi-Fi hotspot step (the phone already has it)."""
         with LOCK:
-            self.pin = f"{secrets.randbelow(10**6):06d}"
+            self.pin = pin or f"{secrets.randbelow(10**6):06d}"
             self.until = time.monotonic() + SETUP_S
             self.login = None
             self.msg = "waiting for your phone..."
@@ -404,18 +439,7 @@ class Setup:
         return f"https://{lan_ip()}:{SETUP_PORT}/setup"
 
     def qr_svg(self):
-        code = ("import sys, qrcode, qrcode.image.svg\n"
-                "img = qrcode.make(sys.argv[1], image_factory=qrcode.image.svg.SvgPathImage, box_size=12, border=2)\n"
-                "sys.stdout.write(img.to_string(encoding='unicode'))")
-        try:
-            p = subprocess.run([sys.executable, "-c", code, f"{self.url()}#{self.pin}"],
-                               capture_output=True, text=True, timeout=20)
-            if p.returncode:
-                log("qr:", p.stderr.strip()[-200:])
-            return p.stdout if p.returncode == 0 else ""
-        except (OSError, subprocess.TimeoutExpired) as e:
-            log("qr:", e)
-            return ""
+        return qr_svg(f"{self.url()}#{self.pin}")
 
     def check_pin(self, pin):
         with LOCK:
@@ -666,6 +690,30 @@ def services_apply(choice, save=True):
 SETUP = Setup()
 
 
+def _hotspot_show():
+    if KIOSK.mode != "hotspot":
+        tok = KIOSK.new_token()
+        KIOSK.show("hotspot", f"{LOCAL}/hotspot?k={tok}")
+
+
+def _hotspot_joined(ip, pin):
+    # continue on the home network: the setup screen shows https://<ip>:8443
+    # (QR code) and the phone page finds <hostname>.local with the same PIN
+    SETUP.start(pin=pin)
+
+
+def _hotspot_done():
+    if KIOSK.mode == "hotspot":
+        if configured():
+            KIOSK.dashboard()
+        else:
+            SETUP.start()
+
+
+HOTSPOT = px30_hotspot.Hotspot(on_show=_hotspot_show, on_joined=_hotspot_joined,
+                               on_done=_hotspot_done) if px30_hotspot else None
+
+
 # ------------------------------------------------------------- HTTP servers
 def page(name):
     with open(f"{WWW}/{name}", "rb") as f:
@@ -717,7 +765,7 @@ class LocalHandler(Base):
             return self.send(403, {"error": "origin"})
         u = urllib.parse.urlsplit(self.path)
         q = dict(urllib.parse.parse_qsl(u.query))
-        if u.path in ("/menu", "/screen"):
+        if u.path in ("/menu", "/screen", "/hotspot"):
             if not self.ok_token(q.get("k")):
                 return self.send(403, "expired - tap twice in every corner again", "text/plain; charset=utf-8")
             return self.send(200, page(u.path[1:] + ".html"), "text/html; charset=utf-8")
@@ -726,7 +774,13 @@ class LocalHandler(Base):
                 return self.send(403, {"error": "token"})
             KIOSK.touched = time.monotonic()
             st = {"mode": KIOSK.mode}
-            if KIOSK.mode == "setup":
+            if KIOSK.mode == "hotspot" and HOTSPOT:
+                st.update(HOTSPOT.screen_state())
+                if q.get("qr"):
+                    st["qr1"] = qr_svg(st["wifi_qr"])
+                    st["qr2"] = qr_svg(st["setup_qr"])
+                st.pop("wifi_qr", None)
+            elif KIOSK.mode == "setup":
                 st.update(url=SETUP.url(), pin=SETUP.pin, fp=getattr(SETUP, "fp", ""),
                           msg=SETUP.msg, done=SETUP.done, configured=configured(),
                           left=max(0, int(SETUP.until - time.monotonic())))
@@ -751,6 +805,10 @@ class LocalHandler(Base):
         if name == "service":
             m = services_apply({str(d.get("name")): d.get("on")})
             return self.send(200, {"ok": True, "msg": "; ".join(m) or "unchanged"})
+        if name == "hotspot_cancel":
+            if HOTSPOT:
+                HOTSPOT.cancel()
+            return self.send(200, {"ok": True})
         if name == "setup_cancel":
             SETUP.stop()
             if configured():
@@ -905,17 +963,19 @@ def idle_loop():
             if SETUP.active and time.monotonic() > SETUP.until:
                 log("setup expired")
                 SETUP.stop()
-                if configured():
-                    KIOSK.dashboard()
-                else:
-                    menu()
+                if KIOSK.mode == "setup":
+                    if configured():
+                        KIOSK.dashboard()
+                    else:
+                        menu()
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] in ("menu", "setup", "dashboard"):
+    if len(sys.argv) > 1 and sys.argv[1] in ("menu", "setup", "dashboard", "hotspot"):
         # trigger in the running daemon (ssh): via the local API is not possible
         # without a token -> signal
-        sig = {"menu": "SIGUSR1", "setup": "SIGUSR2", "dashboard": "SIGHUP"}[sys.argv[1]]
+        sig = {"menu": "SIGUSR1", "setup": "SIGUSR2", "dashboard": "SIGHUP",
+               "hotspot": "SIGRTMIN+1"}[sys.argv[1]]
         rc, out = sh("systemctl", "kill", "-s", sig, "px30-panel.service")
         print(out or "ok")
         return rc
@@ -923,6 +983,8 @@ def main():
     signal.signal(signal.SIGUSR1, lambda *_: threading.Thread(target=menu).start())
     signal.signal(signal.SIGUSR2, lambda *_: threading.Thread(target=SETUP.start).start())
     signal.signal(signal.SIGHUP, lambda *_: threading.Thread(target=KIOSK.dashboard).start())
+    if HOTSPOT:
+        signal.signal(signal.SIGRTMIN + 1, lambda *_: HOTSPOT.start())
     KIOSK._clear_url()
     want = services_load()
     if want:
@@ -933,6 +995,8 @@ def main():
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", LOCAL_PORT), LocalHandler)
     threading.Thread(target=gesture_loop, daemon=True).start()
     threading.Thread(target=idle_loop, daemon=True).start()
+    if HOTSPOT:
+        threading.Thread(target=HOTSPOT.run, daemon=True).start()
     if not configured():
         log("not configured -> setup")
         threading.Timer(1.0, SETUP.start).start()
