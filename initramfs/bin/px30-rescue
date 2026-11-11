@@ -211,23 +211,39 @@ start_services() {
 
 # Root needs no password over USB (see build-initramfs.sh). Keys are accepted
 # too: the one baked in at build time (optional) plus admin's keys from /data.
-# Host key: per device on /data, else generated (tmpfs).
+#
+# Host key: the panel has ONE ed25519 host key, the normal system's sshd key on
+# /data, so rescue mode and Debian look the same to ssh clients. It is random
+# per device: made on the first boot after an install or factory reset (by
+# whichever comes first, sshd or this script), kept across updates. Without
+# /data a temporary key is used.
+SSHD_KEY=/mnt/sshdata/ssh/etc/ssh/ssh_host_ed25519_key
 ssh_keys() {
-	HOSTKEY=/etc/dropbear/dropbear_ed25519_host_key
+	HOSTKEY=/tmp/rescue_host_key
 	d=$(px30_part data 2>/dev/null) || d=
 	if [ -n "$d" ] && mkdir -p /mnt/sshdata && mount -t ext4 "$d" /mnt/sshdata 2>/dev/null; then
 		[ -s /mnt/sshdata/ssh/authorized_keys/admin ] && cat /mnt/sshdata/ssh/authorized_keys/admin >> /root/.ssh/authorized_keys
-		# one host key per device, kept on /data (known_hosts stays valid)
-		mkdir -p /mnt/sshdata/ssh
-		[ -s /mnt/sshdata/ssh/rescue_host_key ] || dropbearkey -t ed25519 -f /mnt/sshdata/ssh/rescue_host_key >/dev/null 2>&1
-		[ -s /mnt/sshdata/ssh/rescue_host_key ] && cp /mnt/sshdata/ssh/rescue_host_key /tmp/rescue_host_key && HOSTKEY=/tmp/rescue_host_key
+		[ -s "$SSHD_KEY" ] || new_sshd_key
+		[ -s "$SSHD_KEY" ] && dropbearconvert openssh dropbear "$SSHD_KEY" "$HOSTKEY" >/dev/null 2>&1
+		# separate rescue key of releases before 2026.11.11-6
+		rm -f /mnt/sshdata/ssh/rescue_host_key /mnt/sshdata/ssh/rescue_host_key.pub
 		umount /mnt/sshdata
 	fi
-	if [ ! -s "$HOSTKEY" ]; then
-		dropbearkey -t ed25519 -f /tmp/rescue_host_key >/dev/null 2>&1
-		HOSTKEY=/tmp/rescue_host_key
-	fi
+	[ -s "$HOSTKEY" ] || dropbearkey -t ed25519 -f "$HOSTKEY" >/dev/null 2>&1
 	chmod 600 /root/.ssh/authorized_keys 2>/dev/null
+}
+
+# make the device's host key in sshd's (OpenSSH) format; sshd uses it as is
+new_sshd_key() {
+	mkdir -p "${SSHD_KEY%/*}"
+	rm -f /tmp/newkey
+	dropbearkey -t ed25519 -f /tmp/newkey >/dev/null 2>&1 || return 1
+	dropbearkey -y -f /tmp/newkey 2>/dev/null | grep '^ssh-ed25519 ' > "$SSHD_KEY.pub.tmp" &&
+	dropbearconvert dropbear openssh /tmp/newkey "$SSHD_KEY.tmp" >/dev/null 2>&1 &&
+	chmod 600 "$SSHD_KEY.tmp" && chmod 644 "$SSHD_KEY.pub.tmp" &&
+	mv "$SSHD_KEY.pub.tmp" "$SSHD_KEY.pub" && mv "$SSHD_KEY.tmp" "$SSHD_KEY"
+	rm -f /tmp/newkey "$SSHD_KEY.tmp" "$SSHD_KEY.pub.tmp"
+	sync
 }
 
 screen() { # title, lines...

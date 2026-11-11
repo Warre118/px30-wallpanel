@@ -20,8 +20,8 @@ What lives on `/data`:
 
 - `iwd/`: Wi-Fi profiles (bind mount on `/var/lib/iwd`);
 - `thread/`: OTBR settings (bind mount on `/var/lib/thread`);
-- `ssh/`: host keys, `authorized_keys/admin`, the optional password hash, and
-  the rescue host key;
+- `ssh/`: host keys (also used by rescue mode), `authorized_keys/admin`, and
+  the optional password hash;
 - `kiosk/`: `kiosk.conf` (dashboard URL) and `share/`, the WebKit profile with
   the HA login;
 - `px30-agent/`: MQTT configuration and display settings;
@@ -71,8 +71,9 @@ menu, or from Home Assistant.
 - USB-NCM gadget on the OTG port: the panel is `10.55.0.1` and serves DHCP. Log in
   with `ssh root@10.55.0.1`, **without a password** (USB only: dropbear listens
   on `10.55.0.1`, and there is no Wi-Fi in rescue mode). Keys work too: the one
-  baked in at build time plus admin's keys from `/data`. The host key is
-  generated per device and kept on `/data`.
+  baked in at build time plus admin's keys from `/data`. The host key is the
+  normal system's ed25519 key from `/data`, so the panel has one fingerprint in
+  both modes.
 - Status on screen (fbcon).
 - "boot-failed": waits 2 minutes for `px30-rescue hold`, then reinstalls from the
   factory partition (data kept) and reboots, at most twice in a row.

@@ -46,7 +46,7 @@ add_bin() { # path-in-base -> same path in stage, plus libraries
   LIBS+=("$S/$1")
 }
 for f in usr/sbin/e2fsck usr/sbin/mke2fs usr/sbin/resize2fs usr/sbin/dumpe2fs \
-         usr/sbin/sfdisk usr/bin/zstd usr/sbin/dropbear usr/bin/dropbearkey; do
+         usr/sbin/sfdisk usr/bin/zstd usr/sbin/dropbear usr/bin/dropbearkey usr/bin/dropbearconvert; do
   add_bin "$f"
 done
 # shared libraries, recursively (NEEDED entries of everything copied)
