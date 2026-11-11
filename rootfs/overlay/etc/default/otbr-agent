@@ -2,4 +2,7 @@
 # RCP = TYZS13 (EFR32MG13) on UART5 = /dev/ttyThread (udev-symlink), 115200 baud, RTS/CTS.
 # Backbone = wlan0. REST-API (Home Assistant "OpenThread Border Router" integration)
 # listens on port 8081.
-OTBR_AGENT_OPTS="-I wpan0 -B wlan0 --rest-listen-port 8081 spinel+hdlc+uart:///dev/ttyThread?uart-baudrate=115200&uart-flow-control"
+# -d 5 (NOTICE): at the default INFO level OpenThread logs ~50 lines a minute
+# (MLE advertisements, frame dumps), which pushes everything else out of the
+# 16 MB volatile journal. For debugging: -d 6 or 7 and restart otbr-agent.
+OTBR_AGENT_OPTS="-d 5 -I wpan0 -B wlan0 --rest-listen-port 8081 spinel+hdlc+uart:///dev/ttyThread?uart-baudrate=115200&uart-flow-control"

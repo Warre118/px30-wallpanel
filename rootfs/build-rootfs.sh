@@ -115,6 +115,8 @@ mmdebstrap \
   ${OTBR_DIST:+--customize-hook="sync-in '$OTBR_DIST' /"} \
   --customize-hook='set -e
     R="$1"
+    # no Python bytecode caches from the PC (py_compile checks) in the image
+    find "$R/usr/local" -name __pycache__ -prune -exec rm -rf {} +
     # everything that came from the PC belongs to root (sync-in copies the host uid)
     chown -R 0:0 "$R/boot" "$R/usr/lib/modules" "$R/etc" "$R/usr/local"
     # files from /mnt/c arrive as 0777 and sync-in also applies that mode to
@@ -171,8 +173,9 @@ mmdebstrap \
     if [ -x "$R/usr/sbin/otbr-agent" ]; then chown 0:0 "$R/usr/sbin/otbr-agent" "$R/usr/sbin/ot-ctl"; chmod 755 "$R/usr/sbin/otbr-agent" "$R/usr/sbin/ot-ctl"; fi
     # display diagnostics only in the debug phase (PANEL_DIAG=1)
     '"$( [ "${PANEL_DIAG:-0}" = 1 ] && echo 'chroot "$R" systemctl enable panel-diag; mkdir -p "$R/var/log/journal"; printf "[Journal]\nStorage=persistent\nSystemMaxUse=64M\n" > "$R/etc/systemd/journald.conf.d/zz-debug-persistent.conf"' )"'
-    # no automatic apt runs on a kiosk with 1 GB RAM and eMMC
-    chroot "$R" systemctl disable apt-daily.timer apt-daily-upgrade.timer
+    # no automatic apt runs on a kiosk with 1 GB RAM and eMMC; no daily dpkg
+    # database backup either (the image is replaced as a whole, A/B)
+    chroot "$R" systemctl disable apt-daily.timer apt-daily-upgrade.timer dpkg-db-backup.timer
     # boot animation: kiosk-start stops Plymouth itself right before Cog starts
     # (otherwise it stops at multi-user and you see a frozen frame or tty1)
     chroot "$R" systemctl mask plymouth-quit.service plymouth-quit-wait.service

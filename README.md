@@ -143,6 +143,7 @@ Restore the backup with RKDevTool in Loader mode. See
 | [docs/system.md](docs/system.md) | eMMC layout, boot flow, A/B, rescue mode, recovery paths |
 | [docs/radio.md](docs/radio.md) | Zigbee/Thread module: firmware, SWD, OTBR, switching stacks |
 | [docs/hardware.md](docs/hardware.md) | hardware details found during the port |
+| [docs/efficiency.md](docs/efficiency.md) | resource use measured on the panel, tuning done and still to try |
 | [docs/development-notes.md](docs/development-notes.md) | how the hard problems were solved, open issues |
 
 ## License
