@@ -483,7 +483,8 @@ class Setup:
         cur = kiosk_url()
         if d.get("relogin") or not configured():
             if not dash:
-                raise HAError("dashboard URL missing")
+                # the sections above are applied already: say so
+                raise HAError("; ".join([m for m in res["msgs"] if m] + ["Home Assistant: dashboard URL missing"]))
             lg = HALogin(dash, bool(d.get("insecure")))
             self.msg = "logging in to Home Assistant..."
             lg.start()
