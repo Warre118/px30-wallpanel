@@ -364,6 +364,27 @@ class StateMachine(unittest.TestCase):
         hs.tick()
         self.assertEqual(hs.phase, "idle")
 
+    def test_join_rejected_after_connect_is_auth(self):
+        # Connect "succeeds", but the router keeps dropping the link (wrong
+        # password): not a DHCP problem
+        hs, iwd, clock, ev, tmp = self.start_ap()
+        iwd.join_result = (True, None)
+        iwd.ipv4 = lambda: None
+        iwd.status = lambda: {"mode": "station", "state": "disconnected", "known": 1}
+        req(hs, "POST", "/api/join", {"ssid": SECRET_SSID, "password": SECRET_PW}, pin=hs.pin)
+        hs.tick()
+        self.assertEqual(hs.phase, "ap")
+        self.assertIn("password", hs.phone_state()["error"].lower())
+
+    def test_join_connected_without_ip_is_dhcp(self):
+        hs, iwd, clock, ev, tmp = self.start_ap()
+        iwd.join_result = (True, None)
+        iwd.ipv4 = lambda: None
+        req(hs, "POST", "/api/join", {"ssid": SECRET_SSID, "password": SECRET_PW}, pin=hs.pin)
+        hs.tick()
+        self.assertEqual(hs.phase, "ap")
+        self.assertIn("ip address", hs.phone_state()["error"].lower())
+
     def test_join_wrong_password_back_to_hotspot(self):
         hs, iwd, clock, ev, tmp = self.start_ap()
         ssid, pw, pin = hs.ssid, hs.passphrase, hs.pin

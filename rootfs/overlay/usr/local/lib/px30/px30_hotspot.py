@@ -700,7 +700,12 @@ class Hotspot:
                 if not ip:
                     self.sleep(1)
             if not ip:
-                ok, err = False, "dhcp"
+                # Found on the hardware: iwd may report the Connect call as done
+                # (it auto-connects as soon as the file appears) while the
+                # router keeps rejecting the password (deauth, reason 2). Only
+                # call it a DHCP problem when the link really is up.
+                st = self.iwd.status() or {}
+                ok, err = False, ("dhcp" if st.get("state") == "connected" else "auth")
         with self.lock:
             self.pending = None
         if ok:

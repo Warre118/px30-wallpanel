@@ -416,6 +416,14 @@ class Setup:
                 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
                 ctx.load_cert_chain(crt, key)
                 srv.socket = ctx.wrap_socket(srv.socket, server_side=True, do_handshake_on_connect=False)
+
+                # a browser that does not (yet) trust the self-signed
+                # certificate aborts the TLS handshake: no traceback for that
+                def _quiet(request, client_address, _orig=srv.handle_error):
+                    if isinstance(sys.exc_info()[1], (ssl.SSLError, ConnectionError, TimeoutError)):
+                        return
+                    _orig(request, client_address)
+                srv.handle_error = _quiet
                 self.server = srv
                 threading.Thread(target=srv.serve_forever, daemon=True).start()
                 log(f"setup: https://{lan_ip()}:{SETUP_PORT}/setup")
