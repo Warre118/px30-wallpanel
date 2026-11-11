@@ -1,0 +1,292 @@
+#!/bin/sh
+# PX30 rescue mode (runs from the initramfs, the eMMC is not in use).
+#
+# As PID 1 (exec'd by /init):  px30-rescue <reason>
+#   reason boot-failed   -> after 2 min without a "hold": reinstall the system
+#                           from the factory partition (data is kept), reboot.
+#                           At most 2 automatic repairs in a row.
+#   reason reinstall     -> reinstall now (keep data), reboot
+#   reason factory-reset -> reinstall now AND wipe data, reboot
+#   reason rescue|manual -> stay in rescue mode and wait
+# Always: USB network (NCM, 10.55.0.1) + ssh root@10.55.0.1 (key only).
+#
+# Commands over ssh:
+#   px30-rescue status | hold | reboot
+#   px30-rescue reinstall [--wipe-data]
+#   px30-rescue write-rootfs a|b        < rootfs.img.zst   (zstd stream)
+#   px30-rescue write-part boot|recovery < image
+#   px30-rescue put-factory NAME         < file            (into factory fs)
+#   px30-rescue repartition --yes        (old Android layout -> PX30 layout)
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+. /lib/px30-state.sh
+set -o pipefail 2>/dev/null
+TTY=/dev/tty1
+
+say() { echo "$*"; echo "$*" > $TTY 2>/dev/null; echo "px30-rescue: $*" > /dev/kmsg 2>/dev/null; }
+die() { say "FOUT: $*"; exit 1; }
+need() { px30_part "$1" || die "partitie $1 ontbreekt"; }
+
+# ------------------------------------------------------------------ actions
+do_reinstall() { # [--wipe-data]
+	f=$(need factory) || exit 1
+	r=$(need rootfs_a) || exit 1
+	mkdir -p /mnt/factory
+	grep -q " /mnt/factory " /proc/mounts || mount -t ext4 -o ro "$f" /mnt/factory || die "factory mount"
+	[ -s /mnt/factory/rootfs.img.zst ] || die "geen rootfs.img.zst in factory"
+	say "Systeem herstellen vanuit factory (versie $(cat /mnt/factory/VERSION 2>/dev/null)) ..."
+	zstd -t -q /mnt/factory/rootfs.img.zst || die "factory-image is beschadigd"
+	zstd -dc /mnt/factory/rootfs.img.zst | dd of="$r" bs=1048576 2>/dev/null || die "schrijven rootfs_a"
+	sync
+	e2fsck -fy "$r" >/dev/null 2>&1
+	resize2fs "$r" >/dev/null 2>&1 || die "resize2fs"
+	for p in boot recovery; do
+		[ -s /mnt/factory/$p.img ] || continue
+		d=$(px30_part $p) || continue
+		n=$(wc -c < /mnt/factory/$p.img)
+		if ! head -c "$n" "$d" | cmp -s - /mnt/factory/$p.img; then
+			say "  $p herstellen"
+			dd if=/mnt/factory/$p.img of="$d" bs=1048576 2>/dev/null
+		fi
+	done
+	umount /mnt/factory
+	if [ "$1" = --wipe-data ]; then
+		say "Gegevens wissen (Wi-Fi, sleutels, instellingen) ..."
+		d=$(need data) || exit 1
+		/usr/sbin/mke2fs -q -t ext4 -L data -F "$d" || die "mke2fs data"
+	fi
+	state_load; slot=a; fallback=; tries=0; action=; state_save
+	bcb_clear
+	say "Herstel klaar."
+}
+
+do_write_rootfs() { # a|b  (stdin = zstd stream of an ext4 image)
+	case "$1" in a|b) ;; *) die "slot a of b" ;; esac
+	r=$(need "rootfs_$1") || exit 1
+	zstd -dc | dd of="$r" bs=1048576 2>/dev/null || die "schrijven rootfs_$1"
+	sync
+	e2fsck -fy "$r" >/dev/null 2>&1
+	resize2fs "$r" >/dev/null 2>&1 || die "resize2fs"
+	say "rootfs_$1 geschreven ($(dumpe2fs -h "$r" 2>/dev/null | sed -n 's/^Block count: *//p') blokken)"
+}
+
+do_write_part() { # boot|recovery (stdin = raw image)
+	case "$1" in boot|recovery) ;; *) die "enkel boot of recovery" ;; esac
+	d=$(need "$1") || exit 1
+	dd of="$d" bs=1048576 2>/dev/null || die "schrijven $1"
+	sync; say "$1 geschreven"
+}
+
+do_put_factory() { # NAME (stdin = file)
+	case "$1" in */*|'') die "ongeldige naam" ;; esac
+	f=$(need factory) || exit 1
+	mkdir -p /mnt/factory
+	grep -q " /mnt/factory " /proc/mounts || mount -t ext4 "$f" /mnt/factory || die "factory mount"
+	cat > "/mnt/factory/$1.tmp" && mv "/mnt/factory/$1.tmp" "/mnt/factory/$1" || die "schrijven $1"
+	sync; umount /mnt/factory
+	say "factory/$1 opgeslagen"
+}
+
+# Old Android GPT -> PX30 layout. Sectors of 512 B; uboot/trust/misc/resource
+# stay where they are (the idblock/U-Boot never move). Small vendor partitions
+# are copied along. Identity of the running Debian (Wi-Fi, ssh host keys,
+# machine-id, hostname, Thread) goes to the new data partition.
+LAYOUT='label: gpt
+first-lba: 34
+unit: sectors
+start=16384,   size=8192,    name=uboot
+start=24576,   size=8192,    name=trust
+start=32768,   size=8192,    name=misc
+start=40960,   size=32768,   name=resource
+start=73728,   size=8192,    name=security
+start=81920,   size=32768,   name=smatek
+start=114688,  size=512,     name=keypart
+start=115200,  size=512,     name=STSN
+start=131072,  size=131072,  name=boot
+start=262144,  size=131072,  name=recovery
+start=393216,  size=2097152, name=factory
+start=2490368, size=1048576, name=data
+start=3538944, size=5863424, name=rootfs_a
+start=9402368, size=5863424, name=rootfs_b'
+
+do_repartition() {
+	[ "$1" = --yes ] || die "gebruik: px30-rescue repartition --yes"
+	px30_part rootfs_a >/dev/null && die "eMMC heeft al de PX30-indeling"
+	u=$(need userdata) || exit 1
+	disk=/dev/mmcblk0
+	[ "$(cat /sys/block/mmcblk0/size)" -ge 15265792 ] || die "eMMC te klein"
+	grep -q '^/dev/mmcblk0' /proc/mounts && die "er is nog iets van de eMMC gemount"
+	S=/tmp/save; rm -rf $S; mkdir -p $S/ident
+	for p in security smatek keypart STSN; do
+		d=$(need $p) || exit 1
+		dd if="$d" of=$S/$p.img bs=65536 2>/dev/null || die "bewaren $p"
+	done
+	mkdir -p /mnt/old
+	# carry over identity from an earlier Debian on userdata; Android's own
+	# userdata (or an unreadable one) simply has nothing to carry over
+	mkdir -p $S/ident/ssh
+	if mount -t ext4 -o ro "$u" /mnt/old 2>/dev/null; then
+		o=/mnt/old
+		[ -d $o/var/lib/iwd ] && cp -a $o/var/lib/iwd $S/ident/iwd
+		[ -d $o/var/lib/thread ] && cp -a $o/var/lib/thread $S/ident/thread
+		cp -a $o/etc/ssh/ssh_host_* $S/ident/ssh/ 2>/dev/null
+		cp $o/etc/machine-id $o/etc/hostname $S/ident/ 2>/dev/null
+		umount /mnt/old
+	else
+		say "userdata not mountable: no identity to carry over"
+	fi
+	say "Bewaard: $(ls $S) / identiteit: $(ls $S/ident | tr '\n' ' ')"
+
+	say "Nieuwe partitietabel schrijven ..."
+	echo "$LAYOUT" | sfdisk --no-reread --no-tell-kernel -q "$disk" || die "sfdisk"
+	sync
+	blockdev --rereadpt "$disk" || die "kernel leest de nieuwe tabel niet"
+	sleep 1
+	for p in security smatek keypart STSN; do
+		d=$(need $p) || exit 1
+		dd if=$S/$p.img of="$d" bs=65536 conv=fsync 2>/dev/null || die "terugzetten $p"
+	done
+	do_finish_layout
+}
+
+# second half of the repartition (re-runnable): file systems + identity
+do_finish_layout() {
+	S=/tmp/save; disk=/dev/mmcblk0
+	/usr/sbin/mke2fs -q -t ext4 -L factory -F "$(need factory)" || die "mke2fs factory"
+	/usr/sbin/mke2fs -q -t ext4 -L data -F "$(need data)" || die "mke2fs data"
+	mkdir -p /mnt/data
+	mount -t ext4 "$(need data)" /mnt/data || die "data mount"
+	mkdir -p /mnt/data/ssh/etc/ssh /mnt/data/kiosk
+	[ -d $S/ident/iwd ] && cp -a $S/ident/iwd /mnt/data/iwd && chmod 700 /mnt/data/iwd
+	[ -d $S/ident/thread ] && cp -a $S/ident/thread /mnt/data/thread
+	cp -a $S/ident/ssh/. /mnt/data/ssh/etc/ssh/ 2>/dev/null
+	for f in machine-id hostname; do [ -s $S/ident/$f ] && cp $S/ident/$f /mnt/data/$f; done
+	umount /mnt/data
+	slot=a; tries=0; fallback=; action=; rescues=0; state_save
+	bcb_clear
+	say "Nieuwe indeling klaar. Nu rootfs_a, boot, recovery en factory schrijven."
+	sfdisk -l "$disk" 2>/dev/null | tail -n 16
+}
+
+do_status() {
+	state_load; state_show
+	echo "reden: $(cat /run/rescue-reason 2>/dev/null)"
+	for p in boot recovery factory data rootfs_a rootfs_b userdata; do
+		d=$(px30_part $p) && echo "  $p = $d ($(( $(cat /sys/class/block/${d#/dev/}/size) / 2048 )) MiB)"
+	done
+	return 0
+}
+
+# ------------------------------------------------------------ PID 1 / setup
+start_services() {
+	mount -t devpts devpts /dev/pts 2>/dev/null || { mkdir -p /dev/pts; mount -t devpts devpts /dev/pts; }
+	# USB network gadget (same addresses as the normal system)
+	for m in libcomposite u_ether usb_f_ncm; do
+		[ -f /lib/modules/$m.ko ] && insmod /lib/modules/$m.ko 2>/dev/null
+	done
+	mount -t configfs none /sys/kernel/config 2>/dev/null
+	G=/sys/kernel/config/usb_gadget/px30
+	if [ ! -d $G ]; then
+		mkdir -p $G && cd $G
+		echo 0x1d6b > idVendor; echo 0x0104 > idProduct; echo 0x0100 > bcdDevice; echo 0x0200 > bcdUSB
+		echo 0xEF > bDeviceClass; echo 0x02 > bDeviceSubClass; echo 0x01 > bDeviceProtocol
+		mkdir -p strings/0x409 configs/c.1/strings/0x409 functions/ncm.usb0
+		echo "Debian" > strings/0x409/manufacturer
+		echo "PX30 wall panel (rescue)" > strings/0x409/product
+		echo "NCM" > configs/c.1/strings/0x409/configuration
+		echo 250 > configs/c.1/MaxPower
+		echo 02:50:58:33:30:01 > functions/ncm.usb0/host_addr
+		echo 02:50:58:33:30:02 > functions/ncm.usb0/dev_addr
+		ln -s functions/ncm.usb0 configs/c.1/
+		ls /sys/class/udc | head -n 1 > UDC
+		cd /
+	fi
+	ifconfig lo 127.0.0.1 up
+	ifconfig usb0 10.55.0.1 netmask 255.255.255.0 up 2>/dev/null
+	touch /tmp/udhcpd.leases
+	udhcpd -S /etc/udhcpd.conf 2>/dev/null
+	ssh_keys
+	dropbear -s -g -E -p 22 -r "$HOSTKEY" 2>/dev/null
+}
+
+# Keys for root in rescue mode: the one baked in at build time (optional) plus
+# admin's keys from /data (set via the setup page), so a public image needs no
+# built-in key. Host key: per device on /data, else generated (tmpfs).
+ssh_keys() {
+	HOSTKEY=/etc/dropbear/dropbear_ed25519_host_key
+	d=$(px30_part data 2>/dev/null) || d=
+	if [ -n "$d" ] && mkdir -p /mnt/sshdata && mount -t ext4 "$d" /mnt/sshdata 2>/dev/null; then
+		[ -s /mnt/sshdata/ssh/authorized_keys/admin ] && cat /mnt/sshdata/ssh/authorized_keys/admin >> /root/.ssh/authorized_keys
+		# one host key per device, kept on /data (known_hosts stays valid)
+		mkdir -p /mnt/sshdata/ssh
+		[ -s /mnt/sshdata/ssh/rescue_host_key ] || dropbearkey -t ed25519 -f /mnt/sshdata/ssh/rescue_host_key >/dev/null 2>&1
+		[ -s /mnt/sshdata/ssh/rescue_host_key ] && cp /mnt/sshdata/ssh/rescue_host_key /tmp/rescue_host_key && HOSTKEY=/tmp/rescue_host_key
+		umount /mnt/sshdata
+	fi
+	if [ ! -s "$HOSTKEY" ]; then
+		dropbearkey -t ed25519 -f /tmp/rescue_host_key >/dev/null 2>&1
+		HOSTKEY=/tmp/rescue_host_key
+	fi
+	chmod 600 /root/.ssh/authorized_keys 2>/dev/null
+}
+
+screen() { # title, lines...
+	printf '\033[2J\033[H' > $TTY 2>/dev/null
+	{ echo; echo "  PX30 HERSTELMODUS"; echo "  ================="; echo
+	  for l in "$@"; do echo "  $l"; done; echo
+	  echo "  USB-kabel:  ssh root@10.55.0.1"; } > $TTY 2>/dev/null
+}
+
+pid1() {
+	reason=$1
+	echo "$reason" > /run/rescue-reason
+	start_services
+	state_load
+	case "$reason" in
+	reinstall|factory-reset)
+		action=; state_save           # one-shot: never loop on a request
+		screen "Opdracht: $reason" "Even geduld, niet uitschakelen ..."
+		if [ "$reason" = factory-reset ]; then (do_reinstall --wipe-data); else (do_reinstall); fi \
+			&& { say "Herstarten ..."; sleep 3; reboot -f; }
+		screen "Herstel MISLUKT." "Zie: ssh root@10.55.0.1  px30-rescue status"
+		;;
+	boot-failed)
+		rescues=$((rescues + 1)); state_save
+		if [ "$rescues" -le 2 ]; then
+			screen "Het systeem startte $PX30_MAX_TRIES keer niet." \
+				"Over 2 minuten wordt het opnieuw geinstalleerd" \
+				"vanuit de fabrieksversie. Instellingen blijven bewaard." \
+				"" "Stoppen: ssh ... px30-rescue hold"
+			n=120
+			while [ $n -gt 0 ] && [ ! -e /tmp/hold ]; do sleep 1; n=$((n - 1)); done
+			if [ ! -e /tmp/hold ]; then
+				(do_reinstall) && { state_load; rescues=$rescues; say "Herstarten ..."; sleep 3; reboot -f; }
+				screen "Herstel MISLUKT." "Zie: ssh root@10.55.0.1  px30-rescue status"
+			fi
+		else
+			screen "Automatisch herstel lukte niet ($((rescues - 1))x)." \
+				"Het toestel blijft in herstelmodus."
+		fi
+		;;
+	*)
+		if [ "$action" = rescue ]; then action=; state_save; fi
+		screen "Reden: $reason" "Wacht op opdrachten."
+		;;
+	esac
+	while :; do sleep 3600; done        # PID 1 never exits
+}
+
+# ---------------------------------------------------------------- dispatch
+if [ $$ = 1 ]; then pid1 "${1:-manual}"; fi
+cmd=${1:-status}; [ $# -gt 0 ] && shift
+case "$cmd" in
+status) do_status ;;
+hold) touch /tmp/hold; say "automatisch herstel gepauzeerd" ;;
+reboot) bcb_clear; sync; reboot -f ;;   # a manual boot-recovery command must not loop
+reinstall) do_reinstall "$@" ;;
+write-rootfs) do_write_rootfs "$@" ;;
+write-part) do_write_part "$@" ;;
+put-factory) do_put_factory "$@" ;;
+repartition) do_repartition "$@" ;;
+finish-layout) do_finish_layout ;;
+*) sed -n '2,25p' "$0"; exit 1 ;;
+esac

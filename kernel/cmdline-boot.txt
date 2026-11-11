@@ -1,0 +1,1 @@
+console=tty1 quiet loglevel=3 splash plymouth.ignore-serial-consoles vt.global_cursor_default=0 px30.mode=normal

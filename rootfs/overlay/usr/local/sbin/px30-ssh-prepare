@@ -1,0 +1,17 @@
+#!/bin/sh
+# px30-ssh-prepare: apply admin's SSH password (set via the setup page) from
+# /data. Runs before every sshd start (ssh.service drop-in) and after a change
+# on the setup page, so the choice survives updates and reinstalls.
+#   /data/ssh/admin.passwd  crypt(3) hash (openssl passwd -6), mode 0600
+# Without that file: keys only (PasswordAuthentication no, see 10-px30.conf).
+set -eu
+F=/data/ssh/admin.passwd
+# sshd uses the FIRST value it reads -> this file must sort before 10-px30.conf
+C=/etc/ssh/sshd_config.d/05-px30-password.conf
+if [ -s "$F" ]; then
+	usermod -p "$(cat "$F")" admin
+	printf 'PasswordAuthentication yes\n' > "$C"
+else
+	usermod -L admin 2>/dev/null || true
+	rm -f "$C"
+fi

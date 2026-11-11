@@ -1,0 +1,99 @@
+#!/bin/sh
+# PX30 wall panel initramfs: boot counter, A/B rootfs, persistent /data,
+# and the rescue mode (px30-rescue). Busybox only; must stay fast (<0.5 s).
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+mkdir -p /run /tmp /newroot
+mount -t tmpfs -o mode=755 tmpfs /run
+. /lib/px30-state.sh
+
+log() { echo "px30-init: $*" > /dev/kmsg 2>/dev/null; }
+
+mode=normal
+for a in $(cat /proc/cmdline); do
+	case "$a" in px30.mode=*) mode=${a#px30.mode=} ;; esac
+done
+
+# wait for the eMMC (built-in driver, normally already there)
+i=0
+until px30_part misc >/dev/null; do
+	i=$((i + 1)); [ $i -gt 100 ] && break; sleep 0.05
+done
+
+rescue() { # reason
+	log "rescue mode: $1"
+	exec /bin/px30-rescue "$1"
+}
+
+[ "$mode" = rescue ] && rescue manual
+state_load || rescue "no-misc"
+[ -n "$action" ] && rescue "$action"
+
+# ---- boot counter / A/B fallback ----------------------------------------
+tries=$((tries + 1))
+if [ "$tries" -gt "$PX30_MAX_TRIES" ]; then
+	if [ -n "$fallback" ] && [ "$fallback" != "$slot" ] && px30_part "rootfs_$fallback" >/dev/null; then
+		log "slot $slot failed $PX30_MAX_TRIES times, back to slot $fallback"
+		slot=$fallback; fallback=; tries=1
+	else
+		state_save
+		rescue boot-failed
+	fi
+fi
+state_save
+
+# ---- root ---------------------------------------------------------------
+root=$(px30_part "rootfs_$slot") || root=$(px30_part userdata)   # userdata = old layout
+[ -n "$root" ] || rescue "no-rootfs"
+e2fsck -p "$root" >/dev/null 2>&1
+[ $? -ge 4 ] && log "e2fsck $root: errors left"
+# a freshly written image (online update, px30-ota) is smaller than its
+# slot: grow it once, offline (the normal rootfs has no e2fsprogs)
+fsb=$(dumpe2fs -h "$root" 2>/dev/null | sed -n 's/^Block count: *//p')
+bsz=$(dumpe2fs -h "$root" 2>/dev/null | sed -n 's/^Block size: *//p')
+psec=$(cat "/sys/class/block/${root#/dev/}/size" 2>/dev/null)
+if [ -n "$fsb" ] && [ -n "$bsz" ] && [ -n "$psec" ] && [ $((fsb * (bsz / 512))) -lt "$psec" ]; then
+	log "resize $root ($fsb blocks)"
+	e2fsck -fp "$root" >/dev/null 2>&1
+	resize2fs "$root" >/dev/null 2>&1 || log "resize2fs $root failed"
+fi
+mount -t ext4 -o rw,noatime,commit=60 "$root" /newroot || rescue "mount-failed"
+[ -x /newroot/lib/systemd/systemd ] || { umount /newroot; rescue "no-init"; }
+
+# ---- persistent data ----------------------------------------------------
+if data=$(px30_part data); then
+	e2fsck -p "$data" >/dev/null 2>&1
+	mkdir -p /newroot/data
+	if mount -t ext4 -o rw,noatime,nodev,nosuid "$data" /newroot/data; then
+		d=/newroot/data
+		mkdir -p $d/iwd $d/thread $d/ssh/etc/ssh $d/kiosk
+		chmod 700 $d/iwd
+		# first boot: seed Wi-Fi profiles baked into the image (WIFI_SSID at
+		# build time), the bind mount below would hide them otherwise
+		[ -n "$(ls -A $d/iwd 2>/dev/null)" ] || cp -a /newroot/var/lib/iwd/. $d/iwd/ 2>/dev/null
+		# state that must survive a reinstall of the rootfs: bind mounts
+		# (they move along with switch_root)
+		for p in iwd:/var/lib/iwd thread:/var/lib/thread; do
+			mkdir -p "/newroot${p#*:}"
+			mount --bind "$d/${p%%:*}" "/newroot${p#*:}"
+		done
+		# browser profile of the kiosk (HA login cookies, local storage)
+		k=$(sed -n 's/^kiosk:x:\([0-9]*\):\([0-9]*\):.*/\1:\2/p' /newroot/etc/passwd)
+		if [ -n "$k" ]; then
+			mkdir -p $d/kiosk/share /newroot/home/kiosk/.local/share
+			chown "$k" $d/kiosk/share
+			mount --bind $d/kiosk/share /newroot/home/kiosk/.local/share
+		fi
+		# machine-id and hostname live on /data; first boot: px30-boot-ok saves them
+		[ -s $d/machine-id ] && cp $d/machine-id /newroot/etc/machine-id
+		[ -s $d/hostname ] && cp $d/hostname /newroot/etc/hostname
+	else
+		log "data partition did not mount"
+	fi
+fi
+
+log "slot=$slot tries=$tries root=$root"
+umount /run 2>/dev/null
+exec switch_root /newroot /lib/systemd/systemd

@@ -1,0 +1,728 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Smatek PX30 Home Assistant wall panel (480x480, 4")
+ * Android-identificatie: "Rockchip PX30 evb ddr3 board", rockchip,px30-evb-ddr3-v10
+ *
+ * ONTWERP – NOG NIET OP HARDWARE GETEST.
+ * Afgeleid van de live Android-DTB (dts/android-live.dts, audit 10-11-2026)
+ * en mainline px30-evb.dts. Elke afwijking van de EVB is gemarkeerd met "PANEL:".
+ *
+ * Openstaand (zie BEVINDINGEN.md):
+ *  - paneel: mainline panel-sitronix-st7701 heeft deze init-sequentie nog niet
+ *    -> eigen compatible + patch nodig (kernel/st7701-smatek.patch, todo)
+ *  - touch CST226SE: geen mainline-driver -> out-of-tree module (todo)
+ *  - STK3x3x: exacte chip-ID (reg 0x3e) nog niet gelezen
+ *  - uart4 / uart5: aangesloten op onbekende randapparatuur (Tuya-module?)
+ *  - mbi5041 LED-driver op bit-banged gpio3 (functie onbekend)
+ */
+
+/dts-v1/;
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/pinctrl/rockchip.h>
+#include "px30.dtsi"
+
+/ {
+	model = "Smatek PX30 480x480 wall panel";
+	compatible = "smatek,px30-wallpanel", "rockchip,px30";
+
+	/* ramoops: identiek aan Android (0x110000, 960 KiB, zelfde indeling), zodat
+	 * Android na een warme herstart ons kernellog toont in /sys/fs/pstore */
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		ramoops@110000 {
+			compatible = "ramoops";
+			reg = <0x0 0x110000 0x0 0xf0000>;
+			record-size = <0x20000>;
+			console-size = <0x80000>;
+			pmsg-size = <0x50000>;
+			ftrace-size = <0x0>;
+		};
+	};
+
+	aliases {
+		mmc0 = &emmc;
+		mmc1 = &sdio;
+		serial2 = &uart2;
+	};
+
+	chosen {
+		/* Android: earlyprintk op 0xff160000 = uart2, m0-pinnen (GPIO1_D2/D3) */
+		stdout-path = "serial2:1500000n8";
+	};
+
+	adc-keys {
+		compatible = "adc-keys";
+		io-channels = <&saradc 2>;
+		io-channel-names = "buttons";
+		keyup-threshold-microvolt = <1800000>;
+		poll-interval = <100>;
+
+		button-esc {
+			label = "esc";
+			linux,code = <KEY_ESC>;
+			press-threshold-microvolt = <1310000>;
+		};
+
+		button-home {
+			label = "home";
+			linux,code = <KEY_HOME>;
+			press-threshold-microvolt = <624000>;
+		};
+
+		button-menu {
+			label = "menu";
+			linux,code = <KEY_MENU>;
+			press-threshold-microvolt = <987000>;
+		};
+
+		button-down {
+			label = "volume down";
+			linux,code = <KEY_VOLUMEDOWN>;
+			press-threshold-microvolt = <300000>;
+		};
+
+		button-up {
+			label = "volume up";
+			linux,code = <KEY_VOLUMEUP>;
+			press-threshold-microvolt = <17000>;
+		};
+	};
+
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		/* PANEL: pwm1, 25000 ns = 40 kHz (Android: pwms = <&pwm1 0 25000 0>) */
+		pwms = <&pwm1 0 25000 0>;
+		power-supply = <&vcc3v3_lcd>;
+		brightness-levels = <0 255>;
+		num-interpolated-steps = <255>;
+		default-brightness-level = <200>;
+	};
+
+	sdio_pwrseq: sdio-pwrseq {
+		compatible = "mmc-pwrseq-simple";
+		clocks = <&rk809 1>;
+		clock-names = "ext_clock";
+		pinctrl-names = "default";
+		pinctrl-0 = <&wifi_enable_h>;
+		reset-gpios = <&gpio0 RK_PA2 GPIO_ACTIVE_LOW>;
+	};
+
+	vcc5v0_sys: regulator-vccsys {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc5v0_sys";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+	};
+
+	sound {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "rk809";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,mclk-fs = <256>;
+		simple-audio-card,widgets =
+			"Microphone", "Mic Jack",
+			"Headphone", "Headphone Jack";
+		/* PANEL: routing uit Android; luidspreker-uitgang nog te bevestigen */
+		simple-audio-card,routing =
+			"MICL", "Mic Jack",
+			"Headphone Jack", "HPOL",
+			"Headphone Jack", "HPOR";
+
+		simple-audio-card,codec {
+			sound-dai = <&rk809>;
+		};
+
+		simple-audio-card,cpu {
+			sound-dai = <&i2s1_2ch>;
+		};
+	};
+};
+
+&cpu0 {
+	cpu-supply = <&vdd_arm>;
+};
+
+&cpu1 {
+	cpu-supply = <&vdd_arm>;
+};
+
+&cpu2 {
+	cpu-supply = <&vdd_arm>;
+};
+
+&cpu3 {
+	cpu-supply = <&vdd_arm>;
+};
+
+/*
+ * Vendor-U-Boot laat aclk_peri_src op CPLL staan (CLKSEL_CON14 bit 15 = 1).
+ * Mainline kent die mux-ingang enkel als "dummy_cpll" -> de hele peri-tak is
+ * een wees met rate 0, en de assigned-clock-rates uit px30.dtsi zetten dan de
+ * maximale deler: AHB van de peri-bus (eMMC, USB-OTG, ...) op 96/32 = 3 MHz.
+ * Gevolg: dwc2-gadget krijgt zijn TX-FIFO niet op tijd gevuld (USB 2.0 eist
+ * >= 30 MHz AHB) -> Windows "Device Descriptor Request Failed".
+ * Oplossing (zelfde als Android, CLKSEL_CON14 = 0x6705): eerst ompoten naar
+ * GPLL (1200 MHz), dan de normale rates: ACLK 200 MHz, HCLK 150 MHz.
+ */
+&cru {
+	assigned-clocks = <&cru PLL_NPLL>, <&cru ACLK_PERI_SRC>,
+		<&cru ACLK_BUS_PRE>, <&cru ACLK_PERI_PRE>,
+		<&cru HCLK_BUS_PRE>, <&cru HCLK_PERI_PRE>,
+		<&cru PCLK_BUS_PRE>, <&cru SCLK_GPU>;
+	assigned-clock-parents = <0>, <&pmucru PLL_GPLL>;
+	assigned-clock-rates = <1188000000>, <0>,
+		<200000000>, <200000000>,
+		<150000000>, <150000000>,
+		<100000000>, <200000000>;
+};
+
+&display_subsystem {
+	status = "okay";
+};
+
+&dsi {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	ports {
+		mipi_out: port@1 {
+			reg = <1>;
+
+			mipi_out_panel: endpoint {
+				remote-endpoint = <&mipi_in_panel>;
+			};
+		};
+	};
+
+	panel@0 {
+		/*
+		 * PANEL: Sitronix ST7701(S), 2 lanes, RGB888, 480x480 @ 16 MHz.
+		 * Eigen compatible: de init-sequentie verschilt van alle panelen
+		 * die mainline panel-sitronix-st7701 nu kent.
+		 */
+		compatible = "smatek,px30-wallpanel-panel", "sitronix,st7701";
+		reg = <0>;
+		backlight = <&backlight>;
+		IOVCC-supply = <&vcc_1v8>;
+		VCC-supply = <&vcc3v3_lcd>;
+		/*
+		 * Fysiek actief-laag (Android: flags 1), maar panel-sitronix-st7701
+		 * keert de logica zelf om (set_value(1) = reset los). De binding
+		 * schrijft daarom GPIO_ACTIVE_HIGH voor; met ACTIVE_LOW bleef het
+		 * paneel permanent in reset (zwart scherm, debug9 11-11-2026).
+		 */
+		reset-gpios = <&gpio3 RK_PA0 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&lcd_rst>;
+
+		port {
+			mipi_in_panel: endpoint {
+				remote-endpoint = <&mipi_out_panel>;
+			};
+		};
+	};
+};
+
+&dsi_dphy {
+	status = "okay";
+};
+
+&emmc {
+	bus-width = <8>;
+	cap-mmc-highspeed;
+	mmc-hs200-1_8v;
+	non-removable;
+	vmmc-supply = <&vcc_3v0>;
+	vqmmc-supply = <&vcc_1v8>;
+	status = "okay";
+};
+
+/* PANEL: geen Ethernet-PHY bestukt (alle MDIO phy_id = 0xffff) -> gmac uit */
+
+&gpu {
+	mali-supply = <&vdd_log>;
+	status = "okay";
+};
+
+&i2c0 {
+	status = "okay";
+
+	rk809: pmic@20 {
+		compatible = "rockchip,rk809";
+		reg = <0x20>;
+		interrupt-parent = <&gpio0>;
+		interrupts = <RK_PA7 IRQ_TYPE_LEVEL_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pmic_int>;
+		system-power-controller;
+		wakeup-source;
+		/* clkout2 = 32k LPO voor de RTL8723DS (WiFi+BT); Android: ext_clock = <&rk809 1> */
+		#clock-cells = <1>;
+		clock-output-names = "rk809-clkout1", "rk809-clkout2";
+		#sound-dai-cells = <0>;
+		clocks = <&cru SCLK_I2S1_OUT>;
+		clock-names = "mclk";
+		assigned-clocks = <&cru SCLK_I2S1_OUT>;
+		assigned-clock-parents = <&cru SCLK_I2S1>;
+
+		vcc1-supply = <&vcc5v0_sys>;
+		vcc2-supply = <&vcc5v0_sys>;
+		vcc3-supply = <&vcc5v0_sys>;
+		vcc4-supply = <&vcc5v0_sys>;
+		vcc5-supply = <&vcc3v3_sys>;
+		vcc6-supply = <&vcc3v3_sys>;
+		vcc7-supply = <&vcc3v3_sys>;
+		vcc8-supply = <&vcc3v3_sys>;
+		vcc9-supply = <&vcc5v0_sys>;
+
+		regulators {
+			vdd_log: DCDC_REG1 {
+				regulator-name = "vdd_logic";
+				regulator-min-microvolt = <950000>;
+				regulator-max-microvolt = <1350000>;
+				regulator-ramp-delay = <6001>;
+				regulator-always-on;
+				regulator-boot-on;
+
+				regulator-state-mem {
+					regulator-on-in-suspend;
+					regulator-suspend-microvolt = <950000>;
+				};
+			};
+
+			vdd_arm: DCDC_REG2 {
+				regulator-name = "vdd_arm";
+				regulator-min-microvolt = <950000>;
+				regulator-max-microvolt = <1350000>;
+				regulator-ramp-delay = <6001>;
+				regulator-always-on;
+				regulator-boot-on;
+
+				regulator-state-mem {
+					regulator-off-in-suspend;
+					regulator-suspend-microvolt = <950000>;
+				};
+			};
+
+			vcc_ddr: DCDC_REG3 {
+				regulator-name = "vcc_ddr";
+				regulator-always-on;
+				regulator-boot-on;
+
+				regulator-state-mem {
+					regulator-on-in-suspend;
+				};
+			};
+
+			vcc_3v0: DCDC_REG4 {
+				regulator-name = "vcc_3v0";
+				regulator-min-microvolt = <3000000>;
+				regulator-max-microvolt = <3000000>;
+				regulator-always-on;
+				regulator-boot-on;
+
+				regulator-state-mem {
+					regulator-on-in-suspend;
+					regulator-suspend-microvolt = <3000000>;
+				};
+			};
+
+			vcc3v3_sys: DCDC_REG5 {
+				regulator-name = "vcc3v3_sys";
+				regulator-min-microvolt = <3300000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-always-on;
+				regulator-boot-on;
+
+				regulator-state-mem {
+					regulator-on-in-suspend;
+					regulator-suspend-microvolt = <3300000>;
+				};
+			};
+
+			vcc_1v0: LDO_REG1 {
+				regulator-name = "vcc_1v0";
+				regulator-min-microvolt = <1000000>;
+				regulator-max-microvolt = <1000000>;
+				regulator-always-on;
+				regulator-boot-on;
+
+				regulator-state-mem {
+					regulator-on-in-suspend;
+					regulator-suspend-microvolt = <1000000>;
+				};
+			};
+
+			vcc_1v8: LDO_REG2 {
+				regulator-name = "vcc1v8_soc";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
+				regulator-always-on;
+				regulator-boot-on;
+
+				regulator-state-mem {
+					regulator-on-in-suspend;
+					regulator-suspend-microvolt = <1800000>;
+				};
+			};
+
+			vdd_1v0: LDO_REG3 {
+				regulator-name = "vcc1v0_soc";
+				regulator-min-microvolt = <1000000>;
+				regulator-max-microvolt = <1000000>;
+				regulator-always-on;
+				regulator-boot-on;
+
+				regulator-state-mem {
+					regulator-on-in-suspend;
+					regulator-suspend-microvolt = <1000000>;
+				};
+			};
+
+			vcc3v0_pmu: LDO_REG4 {
+				regulator-name = "vcc3v0_pmu";
+				regulator-min-microvolt = <3000000>;
+				regulator-max-microvolt = <3000000>;
+				regulator-always-on;
+				regulator-boot-on;
+
+				regulator-state-mem {
+					regulator-on-in-suspend;
+					regulator-suspend-microvolt = <3000000>;
+				};
+			};
+
+			vccio_sd: LDO_REG5 {
+				regulator-name = "vccio_sd";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-always-on;
+				regulator-boot-on;
+
+				regulator-state-mem {
+					regulator-on-in-suspend;
+					regulator-suspend-microvolt = <3300000>;
+				};
+			};
+
+			/* PANEL: geen SD-slot; LDO6/7/8/9 (vcc_sd, DVP-camera) ongebruikt */
+			vcc_sd: LDO_REG6 {
+				regulator-name = "vcc_sd";
+				regulator-min-microvolt = <3300000>;
+				regulator-max-microvolt = <3300000>;
+			};
+
+			vcc2v8_dvp: LDO_REG7 {
+				regulator-name = "vcc2v8_dvp";
+				regulator-min-microvolt = <3300000>;
+				regulator-max-microvolt = <3300000>;
+				/* Android: always-on; laten staan tot bekend is wat eraan hangt */
+				regulator-always-on;
+			};
+
+			vcc1v8_dvp: LDO_REG8 {
+				regulator-name = "vcc1v8_dvp";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
+				regulator-always-on;
+			};
+
+			vdd1v5_dvp: LDO_REG9 {
+				regulator-name = "vdd1v5_dvp1";
+				regulator-min-microvolt = <3000000>;
+				regulator-max-microvolt = <3000000>;
+				regulator-always-on;
+			};
+
+			/* PANEL: SWITCH1/2 omgekeerd t.o.v. px30-evb */
+			vcc5v0_host: SWITCH_REG1 {
+				regulator-name = "vcc5v0_host";
+				regulator-always-on;
+				regulator-boot-on;
+			};
+
+			vcc3v3_lcd: SWITCH_REG2 {
+				regulator-name = "vcc3v3_lcd";
+				regulator-boot-on;
+			};
+		};
+
+		rk809_codec: codec {
+			rockchip,mic-in-differential;
+		};
+	};
+};
+
+&i2c1 {
+	status = "okay";
+
+	/*
+	 * PANEL: Hynitron CST226SE (mainline hynitron_cstxxx, cst3xx-protocol).
+	 * Android: irq = gpio0-13 (level low),
+	 * "wake" = gpio0-12 hoog tijdens werking -> hier als reset (active low).
+	 */
+	touchscreen@5a {
+		/* cst3xx-protocol bevestigd via i2ctransfer (chkcode 0xcaca5fdc, 480x480) */
+		compatible = "hynitron,cst226se", "hynitron,cst340";
+		reg = <0x5a>;
+		interrupt-parent = <&gpio0>;
+		/*
+		 * Falling edge: the CST226SE keeps INT low for a while after each
+		 * report; level-low re-entered the handler on already
+		 * acknowledged data (~30 "cst3xx touch read failure" per tap).
+		 */
+		interrupts = <RK_PB5 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&gpio0 RK_PB4 GPIO_ACTIVE_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_int &touch_rst>;
+		touchscreen-size-x = <480>;
+		touchscreen-size-y = <480>;
+		/*
+		 * Controller axes are swapped relative to the display: top-right
+		 * reports (7,450), bottom-right (472,466) (touchlog, 11-11-2026).
+		 */
+		touchscreen-swapped-x-y;
+	};
+};
+
+&i2c2 {
+	status = "okay";
+	clock-frequency = <100000>;
+	i2c-scl-falling-time-ns = <50>;
+	i2c-scl-rising-time-ns = <300>;
+
+	/*
+	 * PANEL: Sensortek STK3x3x licht + nabijheid. Exact type (3310/3311/3335)
+	 * volgt uit register 0x3e; mainline stk3310 aanvaardt alle drie.
+	 * Android gebruikt de IRQ niet (irq_enable = 0, polling); of GPIO3_C0
+	 * fysiek bedraad is, is onbekend -> interrupt pas toevoegen na test.
+	 */
+	light-sensor@47 {
+		compatible = "sensortek,stk3311";
+		reg = <0x47>;
+		vdd-supply = <&vcc3v3_sys>;
+		/* interrupt-parent = <&gpio3>; */
+		/* interrupts = <RK_PC0 IRQ_TYPE_EDGE_FALLING>; */
+	};
+
+	/* PANEL: onbekend apparaat op 0x3c (Android-driver "smatek,tp") – niet beschreven */
+};
+
+&i2s1_2ch {
+	status = "okay";
+};
+
+&io_domains {
+	status = "okay";
+	vccio1-supply = <&vcc_1v8>;
+	vccio2-supply = <&vccio_sd>;
+	vccio3-supply = <&vcc_3v0>;
+	vccio4-supply = <&vcc3v0_pmu>;
+	vccio5-supply = <&vcc_3v0>;
+	/* vccio6 niet ingesteld in Android (GMAC-domein, ongebruikt) */
+};
+
+&pinctrl {
+	lcd {
+		lcd_rst: lcd-rst {
+			rockchip,pins = <3 RK_PA0 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	pmic {
+		pmic_int: pmic-int {
+			rockchip,pins = <0 RK_PA7 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	sdio-pwrseq {
+		wifi_enable_h: wifi-enable-h {
+			rockchip,pins = <0 RK_PA2 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	touchscreen {
+		touch_int: touch-int {
+			rockchip,pins = <0 RK_PB5 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+
+		touch_rst: touch-rst {
+			rockchip,pins = <0 RK_PB4 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	bluetooth {
+		bt_enable: bt-enable {
+			rockchip,pins = <0 RK_PC1 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		bt_wake_dev: bt-wake-dev {
+			rockchip,pins = <0 RK_PA1 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		bt_wake_host: bt-wake-host {
+			rockchip,pins = <0 RK_PB2 RK_FUNC_GPIO &pcfg_pull_down>;
+		};
+	};
+
+	wifi {
+		wifi_host_wake: wifi-host-wake {
+			rockchip,pins = <0 RK_PA5 RK_FUNC_GPIO &pcfg_pull_down>;
+		};
+	};
+};
+
+&pmu_io_domains {
+	status = "okay";
+	pmuio1-supply = <&vcc3v0_pmu>;
+	pmuio2-supply = <&vcc3v0_pmu>;
+};
+
+&pwm1 {
+	status = "okay";
+};
+
+&saradc {
+	vref-supply = <&vcc_1v8>;
+	status = "okay";
+};
+
+&sdio {
+	/* PANEL: RTL8723DS Wi-Fi (SDIO 024c:d723) -> mainline rtw88_8723ds */
+	#address-cells = <1>;
+	#size-cells = <0>;
+	bus-width = <4>;
+	cap-sd-highspeed;
+	cap-sdio-irq;
+	keep-power-in-suspend;
+	non-removable;
+	mmc-pwrseq = <&sdio_pwrseq>;
+	sd-uhs-sdr104;
+	vmmc-supply = <&vcc_3v0>;
+	vqmmc-supply = <&vcc_1v8>;
+	status = "okay";
+
+	wifi@1 {
+		reg = <1>;
+		interrupt-parent = <&gpio0>;
+		interrupts = <RK_PA5 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "host-wake";
+		pinctrl-names = "default";
+		pinctrl-0 = <&wifi_host_wake>;
+	};
+};
+
+&tsadc {
+	rockchip,hw-tshut-mode = <1>;
+	rockchip,hw-tshut-polarity = <1>;
+	status = "okay";
+};
+
+&u2phy {
+	status = "okay";
+
+	u2phy_host: host-port {
+		status = "okay";
+	};
+
+	u2phy_otg: otg-port {
+		status = "okay";
+	};
+};
+
+&uart1 {
+	/* PANEL: RTL8723DS Bluetooth (Android: uart1 + RTS als GPIO1_C3) */
+	/*
+	 * Zonder DMA: met de dw-uart-DMA stokt de TX tijdens de firmware-
+	 * download ("command 0xfc20 tx timeout"), net als op de RK3326
+	 * Gameforce Chi (mainline rk3326-gameforce-chi.dts).
+	 */
+	/delete-property/ dma-names;
+	/delete-property/ dmas;
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart1_xfer &uart1_cts &uart1_rts>;
+	uart-has-rtscts;
+	status = "okay";
+
+	bluetooth {
+		compatible = "realtek,rtl8723ds-bt";
+		enable-gpios = <&gpio0 RK_PC1 GPIO_ACTIVE_HIGH>;
+		device-wake-gpios = <&gpio0 RK_PA1 GPIO_ACTIVE_HIGH>;
+		host-wake-gpios = <&gpio0 RK_PB2 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&bt_enable &bt_wake_dev &bt_wake_host>;
+	};
+};
+
+&uart2 {
+	/* debugconsole; Android gebruikt m0 (GPIO1_D2/D3) */
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart2m0_xfer>;
+	status = "okay";
+};
+
+/*
+ * PANEL: uart4 (ff170000) staat in Android ook aan, met RTS/CTS. De
+ * fabriekstest-app gebruikt /dev/ttyS3 en /dev/ttyS4 op 9600 baud voor
+ * RS485 ("Four85"). GPIO1_D4 (uart4-pin) is in Android echter als sysfs-GPIO
+ * geëxporteerd. Functie op dit exemplaar onbekend -> uit laten.
+ */
+
+&uart5 {
+	/*
+	 * PANEL: Zigbee-module, Silicon Labs EZSP (EmberZNet NCP).
+	 * Fabriekstest: /dev/ttyS5 @ 115200. RTS/CTS zijn gemuxt (GPIO3_A3/A5)
+	 * -> hardware flow control. Bruikbaar vanuit ZHA (bellows) of
+	 * Zigbee2MQTT (adapter ember/ezsp) als /dev/ttyS5.
+	 */
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart5_xfer &uart5_cts &uart5_rts>;
+	uart-has-rtscts;
+	status = "okay";
+};
+
+&usb20_otg {
+	/* OTG-poort: nodig voor Loader/Maskrom-herstel; onder Debian USB-gadget
+	 * (NCM-netwerk naar de PC). Geen ID-pin-detectie nodig. */
+	dr_mode = "peripheral";
+	status = "okay";
+};
+
+/*
+ * TIJDELIJK UIT (11-11-2026): eerste boot liep volledig vast meteen na de
+ * dwc2-probe, net voor EHCI/OHCI (laatste regel 0.437 s "hub 1-0:1.0: 1 port
+ * detected"). Android geeft deze nodes 2 klokken (HCLK_HOST + 0x8b), mainline
+ * enkel HCLK_HOST -> vermoedelijk ontbrekende (arbiter)klok = bus-hang.
+ * Geen bekende USB-hostpoort op dit panel; OTG (dwc2) blijft aan.
+ */
+&usb_host0_ehci {
+	status = "disabled";
+};
+
+&usb_host0_ohci {
+	status = "disabled";
+};
+
+&vopb {
+	status = "okay";
+};
+
+&vopb_mmu {
+	status = "okay";
+};
+
+&vopl {
+	status = "okay";
+};
+
+&vopl_mmu {
+	status = "okay";
+};

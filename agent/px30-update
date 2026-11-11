@@ -1,0 +1,49 @@
+#!/bin/sh
+# px30-update: firmware updates for the PX30 panel and its radio module.
+#
+# *** NOT IMPLEMENTED YET *** - this is the interface px30-agent calls (via
+# sudo, exact arguments only, see 30-px30-agent.sudoers). Every command
+# currently exits 2 ("not implemented") without touching anything.
+#
+#   px30-update system latest
+#       1. read repo from /data/px30-agent/config.json (.update.repo)
+#       2. GitHub Releases API: newest release with tag prefix "v" and an
+#          asset px30-rootfs-<tag>.ext4.zst + SHA256SUMS (+ signature, TBD)
+#       3. download to /data/px30-update/ (space check first), verify sha256
+#          (and signature: minisign/signify public key baked into the image)
+#       4. write to the INACTIVE slot (rootfs_a/rootfs_b), resize2fs
+#       5. px30-state: slot=<new> fallback=<old> tries=0, then reboot;
+#          px30-boot-ok confirms the new slot, the initramfs falls back after
+#          3 failed boots
+#       6. write /etc/px30-release in the image itself (VERSION=<tag>)
+#
+#   (radio module: moved to px30-radio switch STACK CHANNEL; px30-update will
+#   only download newer module firmware + catalog.json into /data/radio)
+#   px30-update module thread|zigbee  [old design, kept for reference]
+#       1. newest release with tag prefix "module-" and an asset
+#          *-<stack>-*.gbl (e.g. tyzs13-thread-rcp-<ver>.gbl,
+#          tyzs13-zigbee-ncp-<ver>.gbl) + sha256
+#       2. stop otbr-agent (and the zigbee serial bridge if running)
+#       3. universal-silabs-flasher --device /dev/ttyThread flash --firmware <gbl>
+#          (bootloader without RTS/CTS, app with RTS/CTS; see BEVINDINGEN 7c)
+#          PRECONDITION: the running firmware must support entering the Gecko
+#          bootloader (current first RCP build does NOT -> SWD once)
+#       4. thread: enable+start otbr-agent, disable zigbee bridge
+#          zigbee: disable otbr-agent, enable the serial bridge for ZHA/Z2M
+#       5. write /data/px30-agent/module.json:
+#          {"stack": "<stack>", "version": "<tag>", "flashed": "<iso date>"}
+#
+# Exit codes: 0 ok, 1 error, 2 not implemented.
+set -eu
+[ "$(id -u)" = 0 ] || exec sudo -n "$0" "$@"
+
+case "${1:-} ${2:-}" in
+"system latest")
+	echo "px30-update $*: not implemented yet" >&2
+	exit 2
+	;;
+*)
+	sed -n '2,36p' "$0" >&2
+	exit 1
+	;;
+esac

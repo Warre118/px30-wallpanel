@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Panel setup</title>
+<style>
+  :root { --bg:#f5f7f9; --fg:#18222b; --mut:#5d6b77; --card:#fff; --line:#d6dde3; --acc:#1f6feb; --bad:#b42318; --ok:#127a3a; --code:#eef2f5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#101418; --fg:#e8eef2; --mut:#93a1ad; --card:#182028; --line:#2c3944; --acc:#4b8ff7; --bad:#ff8f84; --ok:#5fd38d; --code:#0c1116; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 system-ui,sans-serif; }
+  main { max-width:540px; margin:0 auto; padding:16px; }
+  h1 { font-size:22px; margin:8px 0 4px; }
+  h2 { font-size:17px; margin:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin:12px 0; }
+  .head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .state { font-size:13px; color:var(--mut); }
+  label { display:block; font-size:14px; color:var(--mut); margin:10px 0 4px; }
+  input[type=text], input[type=password], input[type=url], input[type=number], textarea {
+    width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; background:transparent; color:var(--fg); font:inherit; }
+  textarea { font:13px/1.3 ui-monospace,monospace; min-height:70px; }
+  .chk { display:flex; gap:8px; align-items:center; margin-top:10px; font-size:15px; }
+  .chk input { width:20px; height:20px; }
+  .chk label { margin:0; color:var(--fg); font-size:15px; }
+  .radio { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+  .radio label { display:flex; gap:8px; align-items:center; margin:0; color:var(--fg); font-size:15px; }
+  button { width:100%; padding:12px; border:0; border-radius:10px; background:var(--acc); color:#fff; font:inherit; font-weight:600; margin-top:12px; }
+  button.sec { background:transparent; color:var(--acc); border:1px solid var(--line); }
+  button:disabled { opacity:.5; }
+  .mut { color:var(--mut); font-size:14px; }
+  .err { color:var(--bad); }
+  .ok { color:var(--ok); }
+  .hide { display:none !important; }
+  pre { background:var(--code); border-radius:8px; padding:10px; font-size:11px; overflow:auto; white-space:pre; }
+  ul { padding-left:20px; margin:6px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Wall panel setup</h1>
+  <p class="mut">Only the sections you change are applied; everything else stays as it is.</p>
+
+  <form id="f1">
+    <div class="card" id="pinbox">
+      <label for="pin">PIN (shown on the panel)</label>
+      <input id="pin" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+      <button type="button" class="sec" id="pinok">Continue</button>
+    </div>
+
+    <div id="sections" class="hide">
+    <!-- Home Assistant -->
+    <div class="card">
+      <div class="head"><h2>Home Assistant</h2><span class="state" id="ha_state"></span></div>
+      <label for="dashboard">Dashboard URL (copy it from your browser)</label>
+      <input id="dashboard" type="url" placeholder="https://homeassistant.local:8123/lovelace/0">
+      <div class="chk" id="reloginrow"><input id="relogin" type="checkbox"><label for="relogin">Log in again (other user or other Home Assistant)</label></div>
+      <p class="mut hide" id="dash_hint"></p>
+      <div id="login">
+        <p class="mut">Your password is only used once to log in and is not stored on the panel.
+          Tip: create a separate, non-admin Home Assistant user for the panel.</p>
+        <label for="username">Username</label>
+        <input id="username" type="text" autocomplete="username" autocapitalize="none">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password">
+        <div class="chk"><input id="insecure" type="checkbox"><label for="insecure">Don't verify Home Assistant's certificate (self-signed)</label></div>
+      </div>
+    </div>
+
+    <!-- MQTT -->
+    <div class="card">
+      <div class="head"><h2>MQTT</h2><span class="state" id="mq_state"></span></div>
+      <p class="mut">Controls and sensors in Home Assistant (MQTT discovery). Without MQTT the panel is a plain kiosk, managed over SSH.</p>
+      <div id="mqtt">
+        <label for="mqtt_host">Broker (host name or IP; empty = turn MQTT off)</label>
+        <input id="mqtt_host" type="text" autocapitalize="none" placeholder="192.168.1.10">
+        <div class="chk"><input id="mqtt_tls" type="checkbox"><label for="mqtt_tls">TLS</label></div>
+        <label for="mqtt_port">Port</label>
+        <input id="mqtt_port" type="number" min="1" max="65535" value="1883">
+        <label for="mqtt_user">Username</label>
+        <input id="mqtt_user" type="text" autocapitalize="none" autocomplete="off">
+        <label for="mqtt_password">Password</label>
+        <input id="mqtt_password" type="password" autocomplete="new-password">
+        <p class="mut" id="mqtt_pwhint"></p>
+      </div>
+    </div>
+
+    <!-- SSH -->
+    <div class="card">
+      <div class="head"><h2>SSH access</h2><span class="state" id="ssh_state"></span></div>
+      <p class="mut">User <b>admin</b>, port 22. Needed for maintenance and for the rescue mode (USB).</p>
+      <div class="radio">
+        <label><input type="radio" name="sshmode" value="" checked> Keep as it is</label>
+        <label><input type="radio" name="sshmode" value="pubkey"> Add my public key</label>
+        <label><input type="radio" name="sshmode" value="genkey"> Make a new key pair (download the private key)</label>
+        <label><input type="radio" name="sshmode" value="password"> Set a password</label>
+        <label id="nopwrow"><input type="radio" name="sshmode" value="nopassword"> Turn password login off (keys only)</label>
+      </div>
+      <div id="ssh_pubkey" class="hide">
+        <label for="pubkey">Public key (one line, e.g. from ~/.ssh/id_ed25519.pub)</label>
+        <textarea id="pubkey" placeholder="ssh-ed25519 AAAA... me@laptop"></textarea>
+      </div>
+      <div id="ssh_password" class="hide">
+        <label for="sshpw">Password (at least 10 characters)</label>
+        <input id="sshpw" type="password" autocomplete="new-password">
+        <p class="mut">A key is safer than a password; with a password, keep the panel off untrusted networks.</p>
+      </div>
+      <div id="ssh_replace" class="chk hide"><input id="replace" type="checkbox"><label for="replace">Remove the other keys</label></div>
+    </div>
+
+    <!-- services -->
+    <div class="card">
+      <h2>Services</h2>
+      <p class="mut">Turn off what you don't use to save CPU time and memory.</p>
+      <div id="services"></div>
+    </div>
+
+    <button id="go" type="submit">Save</button>
+    <p id="m1" class="mut"></p>
+    </div>
+  </form>
+
+  <form id="f2" class="card hide">
+    <h2>Two-factor authentication</h2>
+    <label for="code">Code from your authenticator app</label>
+    <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" required>
+    <button type="submit">Confirm</button>
+    <p id="m2" class="mut"></p>
+  </form>
+
+  <div id="done" class="card hide">
+    <h2 class="ok">Done</h2>
+    <ul id="msgs"></ul>
+    <div id="keybox" class="hide">
+      <p><b>Your new private SSH key.</b> Save it now: the panel does not keep a copy.
+        Use it with <code>ssh -i px30-panel-key admin@&lt;panel&gt;</code>.</p>
+      <button type="button" id="dl">Download private key</button>
+      <pre id="key"></pre>
+    </div>
+    <p class="mut">The panel goes back to the dashboard. Rescue menu: tap twice in every corner of the screen.</p>
+  </div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+let pin = location.hash.slice(1), D = {};
+const PORT = { plain:1883, tls:8883 };
+
+async function call(path, body) {
+  pin = $("#pin").value.trim() || pin;
+  const r = await fetch(path, { method: body ? "POST" : "GET",
+    headers:{ "X-Pin":pin, "Content-Type":"application/json" }, body: body ? JSON.stringify(body) : undefined });
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(j.error || ("error " + r.status));
+  return j;
+}
+function msg(el, t, bad) { el.textContent = t; el.className = bad ? "err" : "mut"; }
+function show(el, on) { el.classList.toggle("hide", !on); }
+
+function fill(d) {
+  D = d;
+  $("#dashboard").value = d.dashboard || "";
+  $("#ha_state").textContent = d.configured ? "set up" : "not set up";
+  show($("#reloginrow"), d.configured);
+  $("#relogin").checked = !d.configured;
+  show($("#login"), !d.configured);
+  $("#mq_state").textContent = d.mqtt_host ? `${d.mqtt_host}:${d.mqtt_port}${d.mqtt_tls ? " (TLS)" : ""}` : "off";
+  $("#mqtt_host").value = d.mqtt_host || "";
+  $("#mqtt_tls").checked = !!d.mqtt_tls;
+  $("#mqtt_port").value = d.mqtt_port || (d.mqtt_tls ? PORT.tls : PORT.plain);
+  $("#mqtt_user").value = d.mqtt_user || "";
+  $("#mqtt_pwhint").textContent = d.mqtt_has_password ? "Leave empty to keep the stored password." : "";
+  const s = d.ssh || {};
+  const parts = [];
+  if (s.keys && s.keys.length) parts.push(`${s.keys.length} key${s.keys.length > 1 ? "s" : ""}`);
+  if (s.password) parts.push("password");
+  if (s.failsafe) parts.push("built-in key");
+  $("#ssh_state").textContent = parts.join(", ") || "no access set up";
+  show($("#nopwrow"), !!s.password);
+  const box = $("#services"); box.innerHTML = "";
+  for (const [k, v] of Object.entries(d.services || {})) {
+    const row = document.createElement("div"); row.className = "chk";
+    row.innerHTML = `<input type="checkbox" id="svc_${k}"><label for="svc_${k}"></label>`;
+    row.querySelector("label").textContent = v.label;
+    row.querySelector("input").checked = v.on; row.querySelector("input").dataset.k = k; row.querySelector("input").dataset.was = v.on;
+    box.appendChild(row);
+  }
+  show($("#pinbox"), false); show($("#sections"), true);
+}
+
+async function load() {
+  try { fill(await call("/api/defaults")); }
+  catch (e) { show($("#pinbox"), true); msg($("#m1"), e.message, true); }
+}
+if (/^\d{6}$/.test(pin)) { $("#pin").value = pin; load(); }
+$("#pinok").onclick = load;
+
+$("#relogin").onchange = () => show($("#login"), $("#relogin").checked);
+// a dashboard on the same Home Assistant needs no new login; another server does
+const origin = u => { try { return new URL(u).origin; } catch (e) { return ""; } };
+$("#dashboard").oninput = () => {
+  if (!D.configured) return;
+  const other = origin($("#dashboard").value.trim()) !== origin(D.dashboard || "");
+  const h = $("#dash_hint");
+  if (other && $("#dashboard").value.trim()) {
+    $("#relogin").checked = true; show($("#login"), true);
+    h.textContent = "This is another Home Assistant address: log in on it below."; show(h, true);
+  } else {
+    show(h, false);
+    if (!$("#relogin").dataset.user) { $("#relogin").checked = false; show($("#login"), false); }
+  }
+};
+$("#relogin").addEventListener("click", () => { $("#relogin").dataset.user = $("#relogin").checked ? "1" : ""; });
+// MQTT is sent only when something in it differs from what is stored
+function mqttChanged() {
+  return $("#mqtt_host").value.trim() !== (D.mqtt_host || "")
+    || (!!$("#mqtt_host").value.trim() && (
+         +$("#mqtt_port").value !== +(D.mqtt_port || ($("#mqtt_tls").checked ? PORT.tls : PORT.plain))
+      || $("#mqtt_tls").checked !== !!D.mqtt_tls
+      || $("#mqtt_user").value !== (D.mqtt_user || "")
+      || $("#mqtt_password").value !== ""));
+}
+$("#mqtt_tls").onchange = () => {
+  // follow TLS with the default port, unless the user typed an own port
+  const p = +$("#mqtt_port").value;
+  if (!p || p === PORT.plain || p === PORT.tls) $("#mqtt_port").value = $("#mqtt_tls").checked ? PORT.tls : PORT.plain;
+};
+document.querySelectorAll("input[name=sshmode]").forEach(r => r.onchange = () => {
+  const m = document.querySelector("input[name=sshmode]:checked").value;
+  show($("#ssh_pubkey"), m === "pubkey"); show($("#ssh_password"), m === "password");
+  show($("#ssh_replace"), m === "pubkey" || m === "genkey");
+});
+
+$("#f1").onsubmit = async ev => {
+  ev.preventDefault();
+  const b = { dashboard: $("#dashboard").value.trim(), relogin: $("#relogin").checked,
+    username: $("#username").value, password: $("#password").value, insecure: $("#insecure").checked,
+    mqtt_change: mqttChanged() };
+  if (b.mqtt_change) Object.assign(b, { mqtt_host: $("#mqtt_host").value.trim(), mqtt_port: $("#mqtt_port").value,
+    mqtt_tls: $("#mqtt_tls").checked, mqtt_user: $("#mqtt_user").value, mqtt_password: $("#mqtt_password").value });
+  const mode = document.querySelector("input[name=sshmode]:checked").value;
+  if (mode) b.ssh = { mode, pubkey: $("#pubkey").value, password: $("#sshpw").value, replace: $("#replace").checked };
+  const svc = {};
+  document.querySelectorAll("#services input").forEach(i => { if (String(i.checked) !== i.dataset.was) svc[i.dataset.k] = i.checked; });
+  if (Object.keys(svc).length) b.services = svc;
+  if (b.relogin && (!b.username || !b.password)) return msg($("#m1"), "Fill in the Home Assistant username and password, or untick 'log in again'.", true);
+  $("#go").disabled = true; msg($("#m1"), "Saving...");
+  try {
+    const r = await call("/api/submit", b);
+    $("#password").value = ""; $("#mqtt_password").value = ""; $("#sshpw").value = "";
+    result(r);
+    if (r.next === "mfa") { show($("#f1"), false); show($("#f2"), true); $("#code").focus(); }
+    else { show($("#f1"), false); show($("#done"), true); }
+  } catch (e) { msg($("#m1"), e.message, true); }
+  $("#go").disabled = false;
+};
+$("#f2").onsubmit = async ev => {
+  ev.preventDefault();
+  try { await call("/api/mfa", { code: $("#code").value }); show($("#f2"), false); show($("#done"), true); }
+  catch (e) { msg($("#m2"), e.message, true); }
+};
+function result(r) {
+  const ul = $("#msgs");
+  for (const m of r.msgs || []) if (m) { const li = document.createElement("li"); li.textContent = m; ul.appendChild(li); }
+  if (r.private_key) {
+    $("#key").textContent = r.private_key; show($("#keybox"), true);
+    $("#dl").onclick = () => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([r.private_key], { type:"application/octet-stream" }));
+      a.download = "px30-panel-key"; a.click();
+    };
+  }
+}
+</script>
+</body>
+</html>

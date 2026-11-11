@@ -1,0 +1,12 @@
+# 30 s after boot the system counts as good. Power-cycling the panel 3 times
+# within those 30 s (during the boot animation) opens the rescue mode, which
+# reinstalls the system from the factory image after 2 minutes.
+[Unit]
+Description=Mark the boot as good after 30 s
+
+[Timer]
+OnBootSec=30s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Setup</title>
+<style>
+  :root { --bg:#101418; --fg:#e8eef2; --mut:#8a98a4; --btn:#22303b; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font:15px/1.3 "DejaVu Sans",sans-serif; overflow:hidden; user-select:none; }
+  .wrap { height:100%; display:flex; flex-direction:column; align-items:center; padding:12px; gap:6px; }
+  h1 { margin:0; font-size:19px; }
+  #qr { width:220px; height:220px; background:#fff; border-radius:10px; padding:4px; }
+  #qr svg { width:100%; height:100%; }
+  .pin { font-size:30px; letter-spacing:6px; font-weight:bold; }
+  .mut { color:var(--mut); font-size:12px; text-align:center; word-break:break-all; }
+  #msg { font-size:15px; min-height:20px; text-align:center; }
+  button { border:0; border-radius:10px; background:var(--btn); color:var(--fg); font:inherit; padding:10px 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Set up with your phone</h1>
+  <div id="qr"></div>
+  <div class="pin" id="pin">------</div>
+  <div class="mut" id="url"></div>
+  <div class="mut" id="fp"></div>
+  <div id="msg"></div>
+  <button id="cancel">Cancel</button>
+</div>
+<script>
+const K = new URLSearchParams(location.search).get("k");
+const $ = s => document.querySelector(s);
+let gotQr = false;
+async function poll() {
+  try {
+    const r = await fetch("/api/state" + (gotQr ? "" : "?qr=1"), { headers:{ "X-Token":K } });
+    if (r.status === 403) { $("#msg").textContent = "expired"; return; }
+    const s = await r.json();
+    if (s.qr) { $("#qr").innerHTML = s.qr; gotQr = true; }
+    $("#pin").textContent = s.pin || "------";
+    $("#url").textContent = "Scan the code, or open " + s.url + " and enter the PIN.";
+    $("#fp").textContent = "A certificate warning is expected; the fingerprint starts with " + s.fp;
+    $("#msg").textContent = (s.msg || "") + (s.left ? `  (${Math.ceil(s.left / 60)} min left)` : "");
+    $("#cancel").textContent = s.configured ? "Cancel" : "Menu";
+  } catch (e) { $("#msg").textContent = "..."; }
+}
+$("#cancel").onclick = () => fetch("/api/action", { method:"POST", headers:{ "X-Token":K, "Content-Type":"application/json" },
+  body:JSON.stringify({ action:"setup_cancel" }) });
+poll(); setInterval(poll, 2000);
+</script>
+</body>
+</html>

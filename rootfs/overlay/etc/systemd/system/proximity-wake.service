@@ -1,0 +1,13 @@
+[Unit]
+Description=Scherm aan bij nadering (proximity) of touch
+After=systemd-udev-settle.service
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/proximity-wake.py
+RuntimeDirectory=px30-display
+RuntimeDirectoryPreserve=yes
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

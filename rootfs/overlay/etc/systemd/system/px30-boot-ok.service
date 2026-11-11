@@ -1,0 +1,7 @@
+[Unit]
+Description=Mark this boot as good (reset the PX30 boot counter)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/px30-ctl boot-ok

@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=PX30 wallpanel
+Description=Originele opstartanimatie van het panel (gordijn, lamp, airco), 480x480, 20 fps
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/px30-wallpanel
+ScriptFile=/usr/share/plymouth/themes/px30-wallpanel/px30-wallpanel.script

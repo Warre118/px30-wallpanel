@@ -1,0 +1,3 @@
+// kleine eMMC-partitie: geen vertalingen, geen aanbevelingen
+Acquire::Languages "none";
+APT::Install-Recommends "false";

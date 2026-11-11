@@ -1,0 +1,25 @@
+{
+ "_comment": "Radio firmware shipped in the image (firmware/ next to this file). /data/radio/catalog.json (downloaded by px30-update) overrides entries with the same stack+channel. stable and latest point to the same build until a newer one is published.",
+ "firmware": [
+  {"stack": "thread", "channel": "stable", "version": "gsdk-4.4.6",
+   "description": "OpenThread RCP (Spinel, 115200 hw-flow, Gecko-bootloader terugkeer)",
+   "file": "ot-rcp-tyzs13-gsdk4.4.6-115200-hwflow-btl.gbl",
+   "sha256": "1d28bfb837884706f90d4db97701b98c85031095454b02b0b7d3fbdec171dee9",
+   "baudrate": 115200, "bootloader_baudrate": 115200},
+  {"stack": "thread", "channel": "latest", "version": "gsdk-4.4.6",
+   "description": "OpenThread RCP (Spinel, 115200 hw-flow, Gecko-bootloader terugkeer)",
+   "file": "ot-rcp-tyzs13-gsdk4.4.6-115200-hwflow-btl.gbl",
+   "sha256": "1d28bfb837884706f90d4db97701b98c85031095454b02b0b7d3fbdec171dee9",
+   "baudrate": 115200, "bootloader_baudrate": 115200},
+  {"stack": "zigbee", "channel": "stable", "version": "7.5.0.0",
+   "description": "EmberZNet NCP 7.5.0.0, EZSP v13 (115200 hw-flow), voor ZHA / Zigbee2MQTT (ember)",
+   "file": "ncp-uart-hw-tyzs13-ezsp13-gsdk4.4.6-115200-hwflow.gbl",
+   "sha256": "caf669f43d1338608bc86ed12d3672786718d58fb4637a8c95626ac48b61fcd1",
+   "baudrate": 115200, "bootloader_baudrate": 115200},
+  {"stack": "zigbee", "channel": "latest", "version": "7.5.0.0",
+   "description": "EmberZNet NCP 7.5.0.0, EZSP v13 (115200 hw-flow), voor ZHA / Zigbee2MQTT (ember)",
+   "file": "ncp-uart-hw-tyzs13-ezsp13-gsdk4.4.6-115200-hwflow.gbl",
+   "sha256": "caf669f43d1338608bc86ed12d3672786718d58fb4637a8c95626ac48b61fcd1",
+   "baudrate": 115200, "bootloader_baudrate": 115200}
+ ]
+}

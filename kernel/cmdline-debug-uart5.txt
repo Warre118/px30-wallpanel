@@ -1,0 +1,1 @@
+root=PARTLABEL=stback rootfstype=ext4 rootwait=30 rw init=/lib/systemd/systemd console=tty1 console=ttyS5,115200n8 ignore_loglevel printk.time=1 panic=5 oops=panic softlockup_panic=1

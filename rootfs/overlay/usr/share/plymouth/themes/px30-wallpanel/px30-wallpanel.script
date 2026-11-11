@@ -1,0 +1,31 @@
+# Opstartanimatie van het Smatek PX30-wallpanel (uit Android bootanimation.zip).
+# Originele grootte (240x240, gecentreerd, zoals Android). intro.png 0,3 s, daarna f0..f264 in een lus aan 20 fps.
+# Plymouth roept de refresh-functie 50x per seconde op. Beelden worden pas
+# geladen als ze aan de beurt zijn (alles vooraf laden = ~240 MB RAM).
+
+Window.SetBackgroundTopColor(0, 0, 0);
+Window.SetBackgroundBottomColor(0, 0, 0);
+
+FRAMES = 265;
+INTRO_TICKS = 15;
+
+anim = Sprite();
+anim.SetX(Window.GetX() + (Window.GetWidth() - 240) / 2);
+anim.SetY(Window.GetY() + (Window.GetHeight() - 240) / 2);
+anim.SetImage(Image("intro.png"));
+
+tick = 0;
+shown = -1;
+
+fun refresh_callback() {
+  tick++;
+  if (tick >= INTRO_TICKS) {
+    frame = Math.Int((tick - INTRO_TICKS) * 20 / 50) % FRAMES;
+    if (frame != shown) {
+      shown = frame;
+      anim.SetImage(Image("f" + frame + ".png"));
+    }
+  }
+}
+
+Plymouth.SetRefreshFunction(refresh_callback);

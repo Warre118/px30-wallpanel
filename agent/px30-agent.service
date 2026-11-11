@@ -1,0 +1,28 @@
+[Unit]
+Description=PX30 Home Assistant agent (MQTT Discovery)
+Documentation=file:///usr/share/doc/px30-agent/README.md
+# Not network-online.target: wait-online also waits for usb0 and hangs 2 min.
+# The agent (paho) reconnects by itself until the broker is reachable.
+After=network.target iwd.service proximity-wake.service
+RequiresMountsFor=/data
+# Not configured yet (first setup page writes it, then starts this unit)
+ConditionPathExists=/data/px30-agent/config.json
+
+[Service]
+Type=simple
+User=px30-agent
+Group=px30-agent
+ExecStart=/usr/bin/python3 /usr/local/bin/px30-agent.py
+# on-failure: without a broker the agent exits 0 (kiosk only, SSH fallback)
+Restart=on-failure
+RestartSec=10
+# Light hardening only: privileged actions run as children via sudo and
+# inherit this sandbox, so ProtectSystem=, NoNewPrivileges= and
+# PrivateDevices= would break px30-ctl / px30-update / systemctl.
+ProtectHome=yes
+PrivateTmp=yes
+UMask=0027
+MemoryMax=64M
+
+[Install]
+WantedBy=multi-user.target

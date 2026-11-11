@@ -1,0 +1,4 @@
+# / (rootfs_a of rootfs_b) en /data mount de initramfs (zie initramfs/init):
+# het slot komt uit de opstartstatus in misc. /var/lib/iwd en /var/lib/thread
+# zijn bind-mounts uit /data, zodat een herinstallatie ze niet wist.
+tmpfs               /tmp  tmpfs  defaults,size=64M           0 0

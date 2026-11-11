@@ -1,0 +1,48 @@
+diff --git a/drivers/input/touchscreen/hynitron_cstxxx.c b/drivers/input/touchscreen/hynitron_cstxxx.c
+index 49fb35c83..ad88889dc 100644
+--- a/drivers/input/touchscreen/hynitron_cstxxx.c
++++ b/drivers/input/touchscreen/hynitron_cstxxx.c
+@@ -245,6 +245,19 @@ static int cst3xx_bootloader_enter(struct i2c_client *client)
+ 	return 0;
+ }
+ 
++/*
++ * CST226SE (Smatek PX30 wall panel): same register protocol as the cst3xx
++ * (chkcode 0xcaca, touch data at 0xd000), but it does not answer the cst3xx
++ * program-mode handshake (0xa002 != 0xac). That handshake only serves as a
++ * presence check, so just reset the controller; firmware_info() still
++ * verifies the chip.
++ */
++static int cst226se_bootloader_enter(struct i2c_client *client)
++{
++	hyn_reset_proc(client, 100);
++	return 0;
++}
++
+ static void cst3xx_report_contact(struct hynitron_ts_data *ts_data,
+ 				  u8 id, unsigned int x, unsigned int y, u8 w)
+ {
+@@ -475,6 +488,15 @@ static const struct hynitron_ts_chip_data cst3xx_data = {
+ 	.report_touch		= &cst3xx_touch_report,
+ };
+ 
++static const struct hynitron_ts_chip_data cst226se_data = {
++	.max_touch_num		= 5,
++	.ic_chkcode		= 0xcaca0000,
++	.firmware_info		= &cst3xx_firmware_info,
++	.bootloader_enter	= &cst226se_bootloader_enter,
++	.init_input		= &cst3xx_input_dev_int,
++	.report_touch		= &cst3xx_touch_report,
++};
++
+ static const struct i2c_device_id hyn_tpd_id[] = {
+ 	{ .name = "hynitron_ts" },
+ 	{ /* sentinel */ },
+@@ -482,6 +504,7 @@ static const struct i2c_device_id hyn_tpd_id[] = {
+ MODULE_DEVICE_TABLE(i2c, hyn_tpd_id);
+ 
+ static const struct of_device_id hyn_dt_match[] = {
++	{ .compatible = "hynitron,cst226se", .data = &cst226se_data },
+ 	{ .compatible = "hynitron,cst340", .data = &cst3xx_data },
+ 	{ /* sentinel */ },
+ };

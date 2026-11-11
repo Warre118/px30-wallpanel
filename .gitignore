@@ -1,0 +1,51 @@
+# --- device dumps and logs (contain serial numbers, MACs, partition data) ---
+px30-audit-*/
+logs/
+zigbee/*.log
+tools/ezsp-probe-result.txt
+
+# --- vendor artwork and firmware: import from your own panel, see docs ---
+bootanim/
+rootfs/overlay/usr/share/plymouth/themes/px30-wallpanel/*.png
+rootfs/overlay/usr/share/kiosk/bootanim.png
+rootfs/overlay/usr/lib/firmware/
+
+# --- legacy prototype (superseded by rootfs/overlay/usr/local/bin/proximity-wake.py) ---
+kiosk/
+
+# --- build output and binaries ---
+*.img
+*.zst
+*.ext4
+*.cpio
+*.cpio.gz
+*.dtb
+*.gbl
+*.s37
+*.hex
+*.o
+*.ko
+*.mod
+*.mod.c
+*.cmd
+.*.cmd
+Module.symvers
+modules.order
+tools/ezsp-probe
+tools/regdump
+tools/regwrite
+tools/uart-tx
+tools/btuart-free/gpiohold
+tools/rtk_hciattach/rtk_hciattach
+release-*/
+__pycache__/
+*.pyc
+
+# --- local secrets ---
+*.psk
+*.key
+id_*
+agent/px30-agent.conf
+
+# --- local Dutch development log (English summary in docs/) ---
+BEVINDINGEN.md

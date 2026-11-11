@@ -1,0 +1,157 @@
+diff --git a/drivers/gpu/drm/panel/panel-sitronix-st7701.c b/drivers/gpu/drm/panel/panel-sitronix-st7701.c
+index f16e0de1e..f5c067da3 100644
+--- a/drivers/gpu/drm/panel/panel-sitronix-st7701.c
++++ b/drivers/gpu/drm/panel/panel-sitronix-st7701.c
+@@ -567,6 +567,19 @@ static int st7701_prepare(struct drm_panel *panel)
+ 	/* Disable Command2 */
+ 	st7701_switch_cmd_bkx(st7701, false, 0);
+ 
++	/*
++	 * Smatek PX30 wall panel: like the vendor (Android) sequence, switch the
++	 * display on and let it settle before the DSI host starts the video
++	 * stream. When DISPLAY_ON only follows in enable(), i.e. after video
++	 * mode has been entered, this panel never syncs to the HS video
++	 * (backlight on, black screen) until the video stream is restarted.
++	 */
++	if (of_device_is_compatible(st7701->dsi->dev.of_node,
++				    "smatek,px30-wallpanel-panel")) {
++		ST7701_WRITE(st7701, MIPI_DCS_SET_DISPLAY_ON, 0x00);
++		msleep(120);
++	}
++
+ 	return 0;
+ }
+ 
+@@ -574,6 +587,14 @@ static int st7701_enable(struct drm_panel *panel)
+ {
+ 	struct st7701 *st7701 = panel_to_st7701(panel);
+ 
++	/*
++	 * Smatek: DISPLAY_ON was already sent in prepare(); a DCS command
++	 * interleaved with the freshly started video stream can desync it.
++	 */
++	if (of_device_is_compatible(st7701->dsi->dev.of_node,
++				    "smatek,px30-wallpanel-panel"))
++		return 0;
++
+ 	ST7701_WRITE(st7701, MIPI_DCS_SET_DISPLAY_ON, 0x00);
+ 
+ 	return 0;
+@@ -1158,6 +1179,96 @@ static const struct st7701_panel_desc rg28xx_desc = {
+ 	.gip_sequence = rg28xx_gip_sequence,
+ };
+ 
++static void smatek_px30_480_gip_sequence(struct st7701 *st7701)
++{
++	/*
++	 * Values below are the vendor (Android) init sequence verbatim.
++	 * Still in Command2 BK1 here: the vendor waits 20 ms after SPD2 and
++	 * sets bit 7 of VGHSS, which the generic code does not.
++	 */
++	msleep(20);
++	ST7701_WRITE(st7701, ST7701_CMD2_BK1_VGHSS, 0x87);
++
++	ST7701_WRITE(st7701, 0xE0, 0x00, 0x1B, 0x02);
++	ST7701_WRITE(st7701, 0xE1, 0x08, 0xA0, 0x00, 0x00, 0x07, 0xA0, 0x00,
++		   0x00, 0x00, 0x44, 0x44);
++	ST7701_WRITE(st7701, 0xE2, 0x11, 0x11, 0x44, 0x44, 0xED, 0xA0, 0x00,
++		   0x00, 0xEC, 0xA0, 0x00, 0x00);
++	ST7701_WRITE(st7701, 0xE3, 0x00, 0x00, 0x11, 0x11);
++	ST7701_WRITE(st7701, 0xE4, 0x44, 0x44);
++	ST7701_WRITE(st7701, 0xE5, 0x0A, 0xE9, 0xD8, 0xA0, 0x0C, 0xEB, 0xD8,
++		   0xA0, 0x0E, 0xED, 0xD8, 0xA0, 0x10, 0xEF, 0xD8, 0xA0);
++	ST7701_WRITE(st7701, 0xE6, 0x00, 0x00, 0x11, 0x11);
++	ST7701_WRITE(st7701, 0xE7, 0x44, 0x44);
++	ST7701_WRITE(st7701, 0xE8, 0x09, 0xE8, 0xD8, 0xA0, 0x0B, 0xEA, 0xD8,
++		   0xA0, 0x0D, 0xEC, 0xD8, 0xA0, 0x0F, 0xEE, 0xD8, 0xA0);
++	ST7701_WRITE(st7701, 0xEB, 0x02, 0x00, 0xE4, 0xE4, 0x88, 0x00, 0x40);
++	ST7701_WRITE(st7701, 0xEC, 0x3C, 0x00);
++	ST7701_WRITE(st7701, 0xED, 0xAB, 0x89, 0x76, 0x54, 0x02, 0xFF, 0xFF,
++		   0xFF, 0xFF, 0xFF, 0xFF, 0x20, 0x45, 0x67, 0x98, 0xBA);
++
++	/*
++	 * The vendor programs the panel-internal porch (VBP 13, VFP 2) and
++	 * inversion/RTNI (0x21, 0x08) independently of the DSI timings;
++	 * the generic code derives other values from the mode. Restore them.
++	 */
++	st7701_switch_cmd_bkx(st7701, true, 0);
++	ST7701_WRITE(st7701, ST7701_CMD2_BK0_PORCTRL, 0x0D, 0x02);
++	ST7701_WRITE(st7701, ST7701_CMD2_BK0_INVSEL, 0x21, 0x08);
++}
++
++static const struct drm_display_mode smatek_px30_480_mode = {
++	.clock		= 16000,
++
++	.hdisplay	= 480,
++	.hsync_start	= 480 + 12,
++	.hsync_end	= 480 + 12 + 10,
++	.htotal		= 480 + 12 + 10 + 15,
++
++	.vdisplay	= 480,
++	.vsync_start	= 480 + 12,
++	.vsync_end	= 480 + 12 + 8,
++	.vtotal		= 480 + 12 + 8 + 15,
++
++	.width_mm	= 72,
++	.height_mm	= 70,
++
++	.flags		= DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
++
++	.type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
++};
++
++static const struct st7701_panel_desc smatek_px30_480_desc = {
++	.mode = &smatek_px30_480_mode,
++	.lanes = 2,
++	.format = MIPI_DSI_FMT_RGB888,
++	.panel_sleep_delay = 0,
++
++	/* Raw vendor gamma tables (Command2 BK0 B0h / B1h) */
++	.pv_gamma = {
++		0x00, 0x11, 0x18, 0x0e, 0x11, 0x06, 0x07, 0x08,
++		0x07, 0x22, 0x04, 0x12, 0x0f, 0xaa, 0x31, 0x18
++	},
++	.nv_gamma = {
++		0x00, 0x11, 0x19, 0x0e, 0x12, 0x07, 0x08, 0x08,
++		0x08, 0x22, 0x04, 0x11, 0x11, 0xa9, 0x32, 0x18
++	},
++	.nlinv = 1,
++	.vop_uv = 4737500,	/* B0h 0x60 */
++	.vcom_uv = 700000,	/* B1h 0x30 */
++	.vgh_mv = 15000,	/* B2h 0x87, bit 7 set in gip_sequence */
++	.vgl_mv = -10170,	/* B5h 0x49 */
++	.avdd_mv = 6600,	/* B8h 0x21 */
++	.avcl_mv = -4600,
++	.gamma_op_bias = OP_BIAS_MIDDLE,	/* B7h 0x85 */
++	.input_op_bias = OP_BIAS_MIN,
++	.output_op_bias = OP_BIAS_MIN,
++	.t2d_ns = 1600,		/* C1h 0x78 */
++	.t3d_ns = 10400,	/* C2h 0x78 */
++	.eot_en = true,
++	.gip_sequence = smatek_px30_480_gip_sequence,
++};
++
+ static const struct drm_display_mode wf40eswaa6mnn0_mode = {
+ 	.clock		= 18306,
+ 
+@@ -1344,6 +1455,12 @@ static int st7701_dsi_probe(struct mipi_dsi_device *dsi)
+ 
+ 	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
+ 			  MIPI_DSI_MODE_LPM | MIPI_DSI_CLOCK_NON_CONTINUOUS;
++	/*
++	 * The Smatek panel is driven with a continuous HS clock by the vendor
++	 * kernel (dsi,flags 0x803: video, burst, LPM).
++	 */
++	if (of_device_is_compatible(dsi->dev.of_node, "smatek,px30-wallpanel-panel"))
++		dsi->mode_flags &= ~MIPI_DSI_CLOCK_NON_CONTINUOUS;
+ 	dsi->format = st7701->desc->format;
+ 	dsi->lanes = st7701->desc->lanes;
+ 
+@@ -1390,6 +1507,7 @@ static const struct of_device_id st7701_dsi_of_match[] = {
+ 	{ .compatible = "elida,kd50t048a", .data = &kd50t048a_desc },
+ 	{ .compatible = "techstar,ts8550b", .data = &ts8550b_desc },
+ 	{ .compatible = "winstar,wf40eswaa6mnn0", .data = &wf40eswaa6mnn0_desc },
++	{ .compatible = "smatek,px30-wallpanel-panel", .data = &smatek_px30_480_desc },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, st7701_dsi_of_match);

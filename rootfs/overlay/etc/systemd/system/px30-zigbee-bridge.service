@@ -1,0 +1,19 @@
+[Unit]
+Description=PX30 Zigbee NCP on TCP (EZSP for ZHA / Zigbee2MQTT)
+Documentation=man:px30-radio
+# only when the radio module runs EmberZNet (px30-radio switch zigbee enables this unit)
+Conflicts=otbr-agent.service
+After=network.target
+RequiresMountsFor=/data
+
+[Service]
+Type=simple
+Environment=ZIGBEE_LISTEN=127.0.0.1 ZIGBEE_PORT=6638
+# ZIGBEE_LISTEN=0.0.0.0 here opens the module to the LAN (no authentication)
+EnvironmentFile=-/data/radio/radio.conf
+ExecStart=/usr/bin/python3 /usr/local/lib/px30/tcp-serial-bridge.py /dev/ttyThread 115200 ${ZIGBEE_PORT} flow ${ZIGBEE_LISTEN}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

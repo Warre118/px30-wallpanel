@@ -1,0 +1,28 @@
+{
+  "_comment": "Copy to /data/px30-agent/config.json (owner px30-agent, mode 0600). Normally written by the first-setup page. Keys starting with _ are ignored.",
+  "mqtt": {
+    "host": "homeassistant.local",
+    "port": 1883,
+    "username": "px30-living-room",
+    "password": "CHANGE-ME",
+    "tls": false,
+    "ca_file": "",
+    "keepalive": 60
+  },
+  "discovery_prefix": "homeassistant",
+  "base_topic": "px30",
+  "device_id": "",
+  "device_name": "PX30 Living room",
+  "wifi_interface": "wlan0",
+  "publish_interval_s": 30,
+  "arm_timeout_s": 60,
+  "update": {
+    "_comment": "repo = GitHub 'owner/name' with the releases; OWNER/... = not configured, no checks",
+    "repo": "OWNER/px30-wallpanel-releases",
+    "check_interval_h": 6,
+    "include_prereleases": false,
+    "firmware_tag_prefix": "v",
+    "module_tag_prefix": "module-",
+    "github_token": ""
+  }
+}

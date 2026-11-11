@@ -1,0 +1,199 @@
+#!/usr/bin/python3
+"""px30-agent-setup - connect the panel to Home Assistant (MQTT broker).
+
+  px30-agent-setup              interactive: broker, port, login, TLS; tests and saves
+  px30-agent-setup --show       current settings (password hidden)
+  px30-agent-setup --test       test the saved settings only
+  px30-agent-setup --disable    remove the settings; the agent stops
+
+Non-interactive (e.g. from the first-setup page):
+  px30-agent-setup --host H [--port N] [--user U] [--password-file F] [--tls]
+                   [--ca-file F] [--insecure] [--name NAME] [--no-test]
+
+The settings live in /data/px30-agent/config.json (mode 0600): they survive a
+reinstall and are wiped by a factory reset. Without a broker the panel keeps
+working as a kiosk; manage it then via SSH:  ssh admin@<ip of the panel>
+Home Assistant needs the MQTT integration with discovery enabled (default).
+"""
+import argparse, getpass, json, os, pwd, ssl, subprocess, sys, threading
+
+CONFIG = "/data/px30-agent/config.json"
+DEFAULT_HOST = ""                   # no default broker
+SECRET = "********"
+
+
+def load():
+    try:
+        with open(CONFIG) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save(cfg):
+    os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
+    tmp = CONFIG + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(cfg, f, indent=1)
+    try:
+        u = pwd.getpwnam("px30-agent")
+        os.chown(tmp, u.pw_uid, u.pw_gid)
+        os.chown(os.path.dirname(CONFIG), u.pw_uid, u.pw_gid)
+    except KeyError:
+        pass
+    os.replace(tmp, CONFIG)
+
+
+def ask(prompt, default=""):
+    v = input(f"{prompt} [{default}]: " if default != "" else f"{prompt}: ").strip()
+    return v if v else default
+
+
+def yesno(prompt, default):
+    v = input(f'{prompt} [{"J/n" if default else "j/N"}]: ').strip().lower()
+    return default if not v else v in ("j", "ja", "y", "yes")
+
+
+def test(m):
+    """Connect + CONNACK within 10 s. Returns (ok, message)."""
+    try:
+        import paho.mqtt.client as mqtt
+    except ImportError:
+        return False, "python3-paho-mqtt ontbreekt"
+    try:
+        c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="px30-agent-setup")
+    except AttributeError:          # paho < 2
+        c = mqtt.Client(client_id="px30-agent-setup")
+    if m.get("username"):
+        c.username_pw_set(m["username"], m.get("password") or None)
+    if m.get("tls"):
+        c.tls_set(ca_certs=m.get("ca_file") or None, cert_reqs=ssl.CERT_REQUIRED)
+        if m.get("tls_insecure"):
+            c.tls_insecure_set(True)
+    done, res = threading.Event(), {}
+
+    def on_connect(client, userdata, flags, rc, *a):
+        res["rc"] = rc
+        done.set()
+    c.on_connect = on_connect
+    try:
+        c.connect(m["host"], int(m["port"]), 10)
+    except Exception as e:  # DNS, refused, TLS handshake ...
+        return False, f"verbinden mislukt: {e}"
+    c.loop_start()
+    done.wait(10)
+    c.loop_stop()
+    c.disconnect()
+    rc = res.get("rc")
+    if rc is None:
+        return False, "geen antwoord van de broker binnen 10 s"
+    if getattr(rc, "is_failure", rc != 0):
+        return False, f"broker weigert: {rc} (gebruikersnaam/wachtwoord?)"
+    return True, "verbinding OK"
+
+
+def restart_agent(enable):
+    if enable:
+        subprocess.run(["systemctl", "enable", "px30-agent.service"], check=False)
+        subprocess.run(["systemctl", "restart", "px30-agent.service"], check=False)
+    else:
+        subprocess.run(["systemctl", "disable", "--now", "px30-agent.service"], check=False)
+
+
+def show(cfg):
+    m = cfg.get("mqtt", {})
+    if not m.get("host"):
+        print("Geen MQTT-broker ingesteld. Het panel werkt als kiosk; beheer via SSH.")
+        return
+    print(f'broker:   {m["host"]}:{m.get("port", 1883)}  TLS: {"ja" if m.get("tls") else "nee"}'
+          f'{" (certificaat NIET gecontroleerd)" if m.get("tls_insecure") else ""}')
+    print(f'login:    {m.get("username") or "-"} / {SECRET if m.get("password") else "-"}')
+    if m.get("ca_file"):
+        print(f'CA:       {m["ca_file"]}')
+    print(f'naam:     {cfg.get("device_name") or "(standaard: PX30 <hostnaam>)"}')
+
+
+def interactive(cfg):
+    m = dict(cfg.get("mqtt", {}))
+    print(__doc__.split("\n\n")[0])
+    print("Leeg laten = waarde tussen [] behouden.\n")
+    m["host"] = ask("MQTT-broker (IP of naam)", m.get("host") or DEFAULT_HOST)
+    m["tls"] = yesno("TLS gebruiken (versleuteld, meestal poort 8883)?", bool(m.get("tls")))
+    m["port"] = int(ask("Poort", str(m.get("port") or (8883 if m["tls"] else 1883))))
+    if m["tls"]:
+        m["ca_file"] = ask("CA-certificaat (pad, leeg = systeem-CA's)", m.get("ca_file", ""))
+        m["tls_insecure"] = yesno("Certificaat NIET controleren (enkel voor testen)?",
+                                  bool(m.get("tls_insecure")))
+    else:
+        m["ca_file"], m["tls_insecure"] = "", False
+    m["username"] = ask("Gebruikersnaam (leeg = geen)", m.get("username", ""))
+    if m["username"]:
+        pw = getpass.getpass("Wachtwoord (leeg = huidige behouden): ")
+        if pw:
+            m["password"] = pw
+    else:
+        m["password"] = ""
+    cfg["device_name"] = ask("Naam in Home Assistant", cfg.get("device_name") or "")
+    return m
+
+
+def main():
+    if os.geteuid() != 0:
+        os.execvp("sudo", ["sudo", sys.argv[0]] + sys.argv[1:])
+    ap = argparse.ArgumentParser(add_help=False)
+    for f in ("--show", "--test", "--disable", "--tls", "--insecure", "--no-test", "-h", "--help"):
+        ap.add_argument(f, action="store_true")
+    for f in ("--host", "--port", "--user", "--password-file", "--ca-file", "--name"):
+        ap.add_argument(f)
+    a = ap.parse_args()
+    if a.h or a.help:
+        print(__doc__)
+        return 0
+    cfg = load()
+    if a.show:
+        show(cfg)
+        return 0
+    if a.disable:
+        cfg.pop("mqtt", None)
+        save(cfg)
+        restart_agent(False)
+        print("MQTT uitgeschakeld; beheer via SSH (ssh admin@<ip>).")
+        return 0
+    if a.test:
+        ok, msg = test(cfg.get("mqtt", {})) if cfg.get("mqtt", {}).get("host") else (False, "niets ingesteld")
+        print(msg)
+        return 0 if ok else 1
+
+    if a.host:
+        m = dict(cfg.get("mqtt", {}), host=a.host, tls=a.tls, tls_insecure=a.insecure,
+                 ca_file=a.ca_file or "", username=a.user or "")
+        m["port"] = int(a.port or (8883 if a.tls else 1883))
+        if a.password_file:
+            m["password"] = open(a.password_file).read().strip()
+        if a.name:
+            cfg["device_name"] = a.name
+    else:
+        if not sys.stdin.isatty():
+            print("geen terminal: gebruik --host ... (zie --help)", file=sys.stderr)
+            return 2
+        m = interactive(cfg)
+
+    m.setdefault("keepalive", 60)
+    if not a.no_test:
+        ok, msg = test(m)
+        print(msg)
+        if not ok:
+            if a.host or not yesno("Toch opslaan?", False):
+                print("Niet opgeslagen. Het panel blijft bereikbaar via SSH (ssh admin@<ip>).")
+                return 1
+    cfg["mqtt"] = m
+    save(cfg)
+    restart_agent(True)
+    print(f"Opgeslagen in {CONFIG}; px30-agent herstart. In Home Assistant verschijnt het "
+          "panel onder Instellingen > Apparaten > MQTT.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

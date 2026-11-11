@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rescue menu</title>
+<style>
+  :root { --bg:#101418; --fg:#e8eef2; --mut:#8a98a4; --btn:#22303b; --acc:#2f81f7; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font:16px/1.3 "DejaVu Sans",sans-serif; overflow:hidden; user-select:none; }
+  .wrap { height:100%; display:flex; flex-direction:column; padding:14px; gap:10px; }
+  h1 { margin:0; font-size:20px; display:flex; justify-content:space-between; align-items:center; }
+  h1 small { color:var(--mut); font-size:13px; font-weight:normal; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; flex:1; }
+  button { border:0; border-radius:12px; background:var(--btn); color:var(--fg); font:inherit;
+    font-size:17px; padding:8px; min-height:56px; }
+  button:active { filter:brightness(1.4); }
+  button.acc { background:var(--acc); }
+  button.warn { background:#3a2c18; color:#f3c27a; }
+  button.bad { background:#3d1714; color:#ff8f84; }
+  .info { font-size:13px; color:var(--mut); white-space:pre-line; overflow:auto; max-height:100%; }
+  #panel { position:absolute; inset:0; background:var(--bg); display:none; flex-direction:column; padding:18px; gap:12px; }
+  #panel.on { display:flex; }
+  #panel p { margin:0; font-size:17px; }
+  #panel .row { display:flex; gap:10px; margin-top:auto; }
+  #panel .row button { flex:1; }
+  .svc { display:flex; justify-content:space-between; align-items:center; font-size:17px; padding:6px 0; border-bottom:1px solid #22303b; }
+  .svc button { min-height:44px; min-width:90px; }
+  .svc button.on { background:var(--acc); }
+  #toast { position:absolute; left:14px; right:14px; bottom:14px; background:#000c; padding:10px;
+    border-radius:10px; text-align:center; display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Rescue menu <small id="ip"></small></h1>
+  <div class="grid">
+    <button class="acc" data-a="exit">← Dashboard</button>
+    <button data-p="status">Status</button>
+    <button data-a="setup">Set up with phone</button>
+    <button data-p="services">Services</button>
+    <button data-a="kiosk">Restart kiosk</button>
+    <button class="warn" data-c="reboot">Restart panel</button>
+    <button class="warn" data-c="rescue">Rescue mode (USB)</button>
+    <button class="warn" data-c="reinstall">Reinstall</button>
+    <button class="bad" data-c="factory-reset" style="grid-column:span 2">Factory reset (erase everything)</button>
+  </div>
+</div>
+
+<div id="panel"></div>
+<div id="toast"></div>
+
+<script>
+const K = new URLSearchParams(location.search).get("k");
+const $ = s => document.querySelector(s);
+const TXT = {
+  reboot: ["Restart the panel?", "The panel restarts (about 40 s)."],
+  rescue: ["Rescue mode?", "The panel restarts into rescue mode. It is then only reachable over USB: ssh root@10.55.0.1. Run 'reboot' there to come back."],
+  reinstall: ["Reinstall?", "The system is reinstalled from the factory copy. Settings (Wi-Fi, keys, Thread, MQTT) are kept."],
+  "factory-reset": ["Factory reset?", "Reinstall the system AND erase ALL settings: Wi-Fi, Home Assistant login, MQTT, SSH access, Thread/Zigbee network data. This cannot be undone."],
+};
+let st = {};
+
+async function api(path, body) {
+  const r = await fetch(path, body ? { method:"POST", headers:{ "X-Token":K, "Content-Type":"application/json" }, body:JSON.stringify(body) }
+                                : { headers:{ "X-Token":K } });
+  if (r.status === 403) { toast("Menu expired"); return null; }
+  return r.json();
+}
+function toast(t) { const e = $("#toast"); e.textContent = t; e.style.display = "block"; clearTimeout(e._t); e._t = setTimeout(() => e.style.display = "none", 3500); }
+async function action(a, extra) { const r = await api("/api/action", Object.assign({ action:a }, extra || {})); if (r) toast(r.msg || (r.ok ? "OK" : "error")); await refresh(); return r; }
+
+function panel(html) { const p = $("#panel"); p.innerHTML = html; p.classList.add("on"); }
+function close() { $("#panel").classList.remove("on"); }
+
+function confirmAction(a, step) {
+  const [t, d] = TXT[a];
+  const second = a === "factory-reset" && step === 2;
+  panel(`<p style="font-size:21px"><b>${second ? "Are you sure? Last chance." : t}</b></p><p>${d}</p>
+    <div class="row"><button id="no">Cancel</button><button class="${a === "factory-reset" ? "bad" : "warn"}" id="yes">${second ? "Yes, erase everything" : "Yes"}</button></div>`);
+  $("#no").onclick = close;
+  $("#yes").onclick = () => {
+    if (a === "factory-reset" && step !== 2) return confirmAction(a, 2);
+    close(); action(a);
+  };
+}
+
+function showStatus() {
+  panel(`<p style="font-size:20px"><b>Status</b></p><div class="info" id="si"></div>
+    <div class="row"><button id="back">Back</button></div>`);
+  $("#si").textContent =
+    `IP: ${(st.ips || []).join(", ")}\nDashboard: ${st.dashboard}\nMQTT: ${st.mqtt}\nSSH: ${st.ssh}\n` +
+    `Light: ${st.lux == null ? "-" : st.lux + " lux"}\nVersion: ${st.version}  kernel ${st.kernel}\n\n${st.boot || ""}`;
+  $("#back").onclick = close;
+}
+
+function showServices() {
+  const sv = st.services || {};
+  panel(`<p style="font-size:20px"><b>Services</b></p><p class="info">Turn off what you don't use to save CPU time and memory.</p>
+    <div id="sl"></div><div class="row"><button id="back">Back</button></div>`);
+  const sl = $("#sl");
+  for (const [k, v] of Object.entries(sv)) {
+    const row = document.createElement("div"); row.className = "svc";
+    row.innerHTML = `<span></span><button></button>`;
+    row.querySelector("span").textContent = v.label;
+    const b = row.querySelector("button"); b.textContent = v.on ? "On" : "Off"; b.classList.toggle("on", v.on);
+    b.onclick = async () => { await action("service", { name:k, on:!v.on }); showServices(); };
+    sl.appendChild(row);
+  }
+  $("#back").onclick = close;
+}
+
+async function refresh() {
+  const r = await api("/api/state"); if (!r) return;
+  st = r;
+  $("#ip").textContent = (r.ips || []).map(s => s.split(": ")[1]).join(" ");
+}
+
+document.querySelectorAll("button[data-a]").forEach(b => b.onclick = () => action(b.dataset.a));
+document.querySelectorAll("button[data-c]").forEach(b => b.onclick = () => confirmAction(b.dataset.c));
+$("button[data-p=status]").onclick = showStatus;
+$("button[data-p=services]").onclick = showServices;
+refresh(); setInterval(refresh, 10000);
+</script>
+</body>
+</html>

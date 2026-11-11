@@ -1,0 +1,943 @@
+#!/usr/bin/python3
+"""
+px30-panel - on-screen rescue menu and first-time setup of the PX30 wall panel.
+
+* Touch gesture: tap twice in each of the four corners (any order) within
+  12 s -> the kiosk shows the menu (http://127.0.0.1:8088/menu).
+  The gesture is read from the touchscreen without grabbing it, so it also
+  works when the dashboard has hung (the kiosk is restarted with the menu).
+* Menu: status, setup via phone, restart kiosk, reboot, rescue mode,
+  reinstall, factory reset (double confirmation), SSH on/off.
+* Setup via phone: the panel shows a QR code + PIN; the phone opens
+  https://<panel-ip>:8443/setup (self-signed certificate, fingerprint on the
+  screen) and fills in the Home Assistant dashboard URL, HA login
+  (incl. 2FA), and optionally MQTT. The HA password is used once for the
+  HA login flow (authorization code) and is never stored: the dashboard in
+  the kiosk exchanges the code for its own tokens (as after a normal login).
+  The setup server only runs while the setup screen is shown (max 20 min).
+* Without /data/kiosk/kiosk.conf (first boot / factory reset) the panel starts
+  in setup mode.
+
+Kiosk contract (kiosk-start): if /run/px30-panel/url exists, Cog opens that
+URL instead of the dashboard; px30-panel restarts Cog (pkill -x cog) to
+switch.
+
+Local API (127.0.0.1:8088) is only accepted with the per-session token and a
+matching Host/Origin, so a web page in the kiosk cannot call it.
+"""
+import base64, glob, hashlib, html, http.server, ipaddress, json, os, re, secrets
+import shlex, socket, ssl, struct, subprocess, sys, threading, time, urllib.error
+import urllib.parse, urllib.request, fcntl
+
+RUN = "/run/px30-panel"
+URL_FILE = f"{RUN}/url"
+WWW = "/usr/share/px30-panel"
+DATA = "/data/px30-panel"
+KIOSK_DATA = "/data/kiosk/kiosk.conf"
+KIOSK_ETC = "/etc/kiosk/kiosk.conf"
+LOCAL_PORT = 8088
+SETUP_PORT = 8443
+LOCAL = f"http://127.0.0.1:{LOCAL_PORT}"
+TOUCH_NAME = "hynitron"
+CORNER = 0.20            # corner zone: 20 % of width/height
+GESTURE_S = 12.0         # all four corners within this time
+DOUBLE_S = 0.8           # two taps in one corner within this time
+TAP_S = 0.5              # max press duration of a tap
+MENU_IDLE_S = 180        # menu closes after 3 min without use
+SETUP_S = 20 * 60        # setup server lifetime
+
+LOCK = threading.RLock()
+
+
+def log(*a):
+    print(*a, file=sys.stderr, flush=True)
+
+
+def sh(*cmd, timeout=30):
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return p.returncode, (p.stdout + p.stderr).strip()
+    except Exception as e:  # noqa: BLE001
+        return 1, str(e)
+
+
+# ---------------------------------------------------------------- kiosk view
+class Kiosk:
+    def __init__(self):
+        os.makedirs(RUN, exist_ok=True)
+        os.chmod(RUN, 0o755)
+        self.mode = None          # None (dashboard) / "menu" / "setup"
+        self.token = None         # token of the current local page
+        self.touched = time.monotonic()
+        self.once_timer = None
+
+    def _restart_cog(self):
+        # cog sometimes takes seconds to exit on SIGTERM (EGL teardown) and keeps
+        # DRM master meanwhile -> the new cog cannot set the mode. Escalate.
+        # SIGKILL on purpose: on SIGTERM cog aborts in its EGL teardown
+        # (SIGABRT -> a core dump every time) and keeps DRM master for seconds
+        sh("pkill", "-KILL", "-x", "cog")
+        # kiosk-start waits for the WebKit processes before starting a new cog
+
+    def show(self, mode, url):
+        with LOCK:
+            self.mode = mode
+            self.touched = time.monotonic()
+            tmp = URL_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                f.write(url + "\n")
+            os.chmod(tmp, 0o644)
+            os.replace(tmp, URL_FILE)
+            self._restart_cog()
+
+    def dashboard(self, once_url=None):
+        """Back to the dashboard; once_url (HA auth callback) is used for the
+        next Cog start only."""
+        with LOCK:
+            self.mode = None
+            self.token = None
+            if once_url:
+                self.show(None, once_url)
+                self.mode = None
+                # cog reads the file at start; afterwards back to normal
+                t = threading.Timer(30, self._clear_url)
+                t.daemon = True
+                t.start()
+            else:
+                self._clear_url()
+                self._restart_cog()
+
+    def _clear_url(self):
+        try:
+            os.unlink(URL_FILE)
+        except FileNotFoundError:
+            pass
+
+    def new_token(self):
+        self.token = secrets.token_urlsafe(16)
+        return self.token
+
+
+KIOSK = Kiosk()
+
+
+# ----------------------------------------------------------------- status
+def kiosk_url():
+    url = ""
+    for f in (KIOSK_ETC, KIOSK_DATA):
+        try:
+            for line in open(f):
+                m = re.match(r"\s*KIOSK_URL=(.*)$", line)
+                if m:
+                    v = shlex.split(m.group(1), comments=True)
+                    url = v[0] if v else ""
+        except (OSError, ValueError):
+            pass
+    return url
+
+
+def configured():
+    return os.path.exists(KIOSK_DATA)
+
+
+def ips():
+    rc, out = sh("ip", "-4", "-o", "addr", "show")
+    res = []
+    for line in out.splitlines():
+        p = line.split()
+        if len(p) > 3 and p[1] != "lo":
+            res.append((p[1], p[3].split("/")[0]))
+    return res
+
+
+def lan_ip():
+    for dev, ip in ips():
+        if dev.startswith("wl") or dev.startswith("eth") or dev.startswith("en"):
+            return ip
+    return ips()[0][1] if ips() else "127.0.0.1"
+
+
+def status():
+    rc, st = sh("/usr/local/sbin/px30-ctl", "status")
+    try:
+        mq = json.load(open("/data/px30-agent/config.json")).get("mqtt", {})
+        mqtt = f"{mq.get('host')}:{mq.get('port')}" if mq.get("host") else "not set up"
+    except (OSError, ValueError):
+        mqtt = "not set up"
+    rc2, sshd = sh("systemctl", "is-active", "ssh.service")
+    ver = "-"
+    lux = None
+    try:
+        lux = json.load(open("/run/px30-display/state.json")).get("lux")
+    except (OSError, ValueError):
+        pass
+    for f in ("/etc/px30-release", "/mnt/factory/VERSION"):
+        try:
+            ver = open(f).read().strip() or ver
+            break
+        except OSError:
+            pass
+    return {
+        "ips": [f"{d}: {i}" for d, i in ips()],
+        "dashboard": kiosk_url() or "(not set up)",
+        "configured": configured(),
+        "mqtt": mqtt,
+        "ssh": sshd.strip(),
+        "boot": st,
+        "version": ver,
+        "kernel": os.uname().release,
+        "lux": lux,
+        "services": services_state(),
+    }
+
+
+# ----------------------------------------------------------------- actions
+def act(name):
+    """Menu actions. Return (ok, message)."""
+    if name == "exit":
+        KIOSK.dashboard()
+        return True, "back to the dashboard"
+    if name == "kiosk":
+        KIOSK.dashboard()
+        return True, "kiosk restarted"
+    if name == "setup":
+        SETUP.start()
+        return True, "setup started"
+    if name == "ssh_on":
+        rc, out = sh("systemctl", "enable", "--now", "ssh.service")
+        return rc == 0, out or "SSH on"
+    if name == "ssh_off":
+        rc, out = sh("systemctl", "disable", "--now", "ssh.service")
+        return rc == 0, out or "SSH off"
+    if name == "reboot":
+        threading.Timer(1.5, lambda: sh("systemctl", "reboot")).start()
+        return True, "restarting..."
+    if name in ("rescue", "reinstall", "factory-reset"):
+        threading.Timer(1.5, lambda: sh("/usr/local/sbin/px30-ctl", name)).start()
+        return True, f"{name}: restarting..."
+    return False, "unknown action"
+
+
+# ------------------------------------------------------------ HA login flow
+class HAError(Exception):
+    pass
+
+
+def ha_split(url):
+    """dashboard URL -> (base 'https://host[:port]', path+query)"""
+    url = url.strip()
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+    u = urllib.parse.urlsplit(url)
+    if u.scheme not in ("http", "https") or not u.hostname:
+        raise HAError("invalid URL")
+    if any(c in url for c in "\"'`$\\ \n\r\t<>"):
+        raise HAError("invalid characters in the URL")
+    base = f"{u.scheme}://{u.netloc}"
+    path = u.path or "/"
+    if u.query:
+        path += "?" + u.query
+    return base, path
+
+
+def ha_req(base, path, data=None, insecure=False, form=False):
+    ctx = ssl.create_default_context()
+    if insecure:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    hdr = {"User-Agent": "px30-panel"}
+    body = None
+    if data is not None:
+        if form:
+            body = urllib.parse.urlencode(data).encode()
+            hdr["Content-Type"] = "application/x-www-form-urlencoded"
+        else:
+            body = json.dumps(data).encode()
+            hdr["Content-Type"] = "application/json"
+    req = urllib.request.Request(base + path, data=body, headers=hdr)
+    try:
+        with urllib.request.urlopen(req, timeout=15, context=ctx) as r:
+            return json.loads(r.read() or b"null")
+    except urllib.error.HTTPError as e:
+        txt = e.read()[:300].decode(errors="replace")
+        raise HAError(f"Home Assistant answered {e.code}: {txt}") from None
+    except ssl.SSLError as e:
+        raise HAError(f"TLS error ({e.reason}); self-signed? tick 'don't verify the certificate'") from None
+    except (urllib.error.URLError, OSError) as e:
+        raise HAError(f"Home Assistant not reachable: {getattr(e, 'reason', e)}") from None
+    except ValueError:
+        raise HAError("no Home Assistant at this address (no JSON)") from None
+
+
+class HALogin:
+    """One login flow (username/password, then optional 2FA step)."""
+
+    def __init__(self, dash_url, insecure):
+        self.base, self.path = ha_split(dash_url)
+        self.insecure = insecure
+        self.client_id = self.base + "/"
+        self.flow = None
+
+    def start(self):
+        prov = ha_req(self.base, "/auth/providers", insecure=self.insecure)
+        if isinstance(prov, dict):
+            prov = prov.get("providers", [])
+        handler = None
+        for p in prov or []:
+            if p.get("type") == "homeassistant":
+                handler = ["homeassistant", p.get("id")]
+                break
+        if not handler:
+            raise HAError("this Home Assistant has no username/password login")
+        self.flow = ha_req(self.base, "/auth/login_flow", {
+            "client_id": self.client_id, "handler": handler,
+            "redirect_uri": self.client_id + "?auth_callback=1"}, self.insecure)
+
+    def step(self, data):
+        """-> ('code', code) | ('mfa', None) | raises HAError"""
+        data = dict(data, client_id=self.client_id)
+        r = ha_req(self.base, f"/auth/login_flow/{self.flow['flow_id']}", data, self.insecure)
+        if r.get("type") == "create_entry":
+            return "code", r["result"]
+        if r.get("type") == "form":
+            self.flow = r
+            err = (r.get("errors") or {}).get("base")
+            if err:
+                raise HAError({"invalid_auth": "wrong username or password",
+                               "invalid_code": "wrong 2FA code"}.get(err, err))
+            if r.get("step_id") == "mfa":
+                return "mfa", None
+        if r.get("type") == "abort":
+            raise HAError(f"login aborted: {r.get('reason')}")
+        raise HAError(f"unexpected answer from Home Assistant: {r.get('type')}")
+
+    def callback_url(self, code):
+        state = base64.b64encode(json.dumps(
+            {"hassUrl": self.base, "clientId": self.client_id}).encode()).decode()
+        sep = "&" if "?" in self.path else "?"
+        q = urllib.parse.urlencode({"auth_callback": "1", "code": code, "state": state,
+                                    "storeToken": "true"})
+        return f"{self.base}{self.path}{sep}{q}"
+
+
+def save_kiosk_url(url):
+    os.makedirs(os.path.dirname(KIOSK_DATA), exist_ok=True)
+    keep = []
+    try:
+        keep = [l for l in open(KIOSK_DATA) if not re.match(r"\s*KIOSK_URL=", l)]
+    except OSError:
+        keep = ["# eigen kiosk-instellingen (px30-panel); blijft bewaard bij herinstallatie\n"]
+    keep.append(f"KIOSK_URL={shlex.quote(url)}\n")
+    tmp = KIOSK_DATA + ".tmp"
+    with open(tmp, "w") as f:
+        f.writelines(keep)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, KIOSK_DATA)
+
+
+def dash_url_clean(url):
+    """dashboard URL without auth parameters"""
+    base, path = ha_split(url)
+    return base + path
+
+
+# ------------------------------------------------------------- setup session
+class Setup:
+    def __init__(self):
+        self.active = False
+        self.pin = None
+        self.until = 0
+        self.server = None
+        self.login = None
+        self.msg = ""
+        self.done = False
+        self.fails = 0
+
+    def cert(self):
+        os.makedirs(DATA, exist_ok=True)
+        crt, key = f"{DATA}/setup.crt", f"{DATA}/setup.key"
+        if not (os.path.exists(crt) and os.path.exists(key)):
+            rc, out = sh("openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt",
+                         "ec_paramgen_curve:prime256v1", "-nodes", "-days", "3650",
+                         "-subj", f"/CN={socket.gethostname()}", "-keyout", key, "-out", crt)
+            if rc:
+                raise RuntimeError("openssl: " + out)
+            os.chmod(key, 0o600)
+        der = ssl.PEM_cert_to_DER_cert(open(crt).read())
+        fp = hashlib.sha256(der).hexdigest().upper()
+        return crt, key, ":".join(fp[i:i + 2] for i in range(0, 12, 2))
+
+    def start(self):
+        with LOCK:
+            self.pin = f"{secrets.randbelow(10**6):06d}"
+            self.until = time.monotonic() + SETUP_S
+            self.login = None
+            self.msg = "waiting for your phone..."
+            self.done = False
+            self.fails = 0
+            if not self.server:
+                crt, key, self.fp = self.cert()
+                srv = http.server.ThreadingHTTPServer(("0.0.0.0", SETUP_PORT), SetupHandler)
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                ctx.load_cert_chain(crt, key)
+                srv.socket = ctx.wrap_socket(srv.socket, server_side=True, do_handshake_on_connect=False)
+                self.server = srv
+                threading.Thread(target=srv.serve_forever, daemon=True).start()
+                log(f"setup: https://{lan_ip()}:{SETUP_PORT}/setup")
+            self.active = True
+            tok = KIOSK.new_token()
+            KIOSK.show("setup", f"{LOCAL}/screen?k={tok}")
+
+    def stop(self):
+        with LOCK:
+            self.active = False
+            self.pin = None
+            self.login = None
+            if self.server:
+                srv, self.server = self.server, None
+                def _down(srv=srv):
+                    srv.shutdown()
+                    srv.server_close()
+                threading.Thread(target=_down, daemon=True).start()
+
+    def url(self):
+        return f"https://{lan_ip()}:{SETUP_PORT}/setup"
+
+    def qr_svg(self):
+        code = ("import sys, qrcode, qrcode.image.svg\n"
+                "img = qrcode.make(sys.argv[1], image_factory=qrcode.image.svg.SvgPathImage, box_size=12, border=2)\n"
+                "sys.stdout.write(img.to_string(encoding='unicode'))")
+        try:
+            p = subprocess.run([sys.executable, "-c", code, f"{self.url()}#{self.pin}"],
+                               capture_output=True, text=True, timeout=20)
+            if p.returncode:
+                log("qr:", p.stderr.strip()[-200:])
+            return p.stdout if p.returncode == 0 else ""
+        except (OSError, subprocess.TimeoutExpired) as e:
+            log("qr:", e)
+            return ""
+
+    def check_pin(self, pin):
+        with LOCK:
+            if not self.active or time.monotonic() > self.until:
+                return False
+            if self.fails >= 10:
+                return False
+            ok = pin is not None and secrets.compare_digest(str(pin), self.pin or "x")
+            if not ok:
+                self.fails += 1
+            return ok
+
+    # ---- steps (called from the phone)
+    def submit(self, d):
+        """One form, independent sections: whatever is left unchanged is kept.
+        Order: services, SSH, MQTT, then the HA login (may need a 2FA step)."""
+        res = {"msgs": []}
+        if isinstance(d.get("services"), dict):
+            res["msgs"] += services_apply(d["services"])
+        ssh = d.get("ssh") or {}
+        if ssh.get("mode") in ("password", "genkey", "pubkey", "nopassword"):
+            msg, priv = ssh_apply(ssh)
+            res["msgs"].append(msg)
+            if priv:
+                res["private_key"] = priv
+        if d.get("mqtt_change"):
+            res["msgs"].append(self.mqtt(d))
+        dash = (d.get("dashboard") or "").strip()
+        cur = kiosk_url()
+        if d.get("relogin") or not configured():
+            if not dash:
+                raise HAError("dashboard URL missing")
+            lg = HALogin(dash, bool(d.get("insecure")))
+            self.msg = "logging in to Home Assistant..."
+            lg.start()
+            kind, code = lg.step({"username": d.get("username", ""), "password": d.get("password", "")})
+            with LOCK:
+                self.login = lg
+            if kind == "mfa":
+                self.msg = "2FA code needed"
+                res["next"] = "mfa"
+                return res
+            self.finish(lg, code)
+        elif dash and cur and dash_url_clean(dash) != dash_url_clean(cur):
+            # new dashboard: without a new login only on the same Home Assistant
+            if ha_split(dash)[0] != ha_split(cur)[0]:
+                raise HAError("other Home Assistant address: tick 'log in again'")
+            save_kiosk_url(dash_url_clean(dash))
+            res["msgs"].append("dashboard saved")
+            self.finish(None, None)
+        else:
+            self.finish(None, None)
+        res["next"] = "done"
+        return res
+
+    def mfa(self, d):
+        with LOCK:
+            lg = self.login
+        if not lg:
+            raise HAError("no login in progress; start again")
+        kind, code = lg.step({"code": d.get("code", "").strip()})
+        if kind != "code":
+            raise HAError("2FA code not accepted")
+        self.finish(lg, code)
+        return {"next": "done", "msgs": []}
+
+    def mqtt(self, d):
+        host = (d.get("mqtt_host") or "").strip()
+        if not host:
+            sh("/usr/local/sbin/px30-agent-setup", "--disable", timeout=40)
+            return "MQTT turned off"
+        if not re.match(r"^[A-Za-z0-9.\-:\[\]]+$", host):
+            return "MQTT: invalid host"
+        cmd = ["/usr/local/sbin/px30-agent-setup", "--host", host]
+        if d.get("mqtt_port"):
+            cmd += ["--port", str(int(d["mqtt_port"]))]
+        if d.get("mqtt_user"):
+            cmd += ["--user", d["mqtt_user"]]
+        if d.get("mqtt_tls"):
+            cmd.append("--tls")
+        pwf = None
+        if d.get("mqtt_password"):        # empty = keep the stored password
+            pwf = f"{RUN}/mqtt-pw.{secrets.token_hex(4)}"
+            fd = os.open(pwf, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            os.write(fd, d["mqtt_password"].encode())
+            os.close(fd)
+            cmd += ["--password-file", pwf]
+        try:
+            rc, out = sh(*cmd, timeout=40)
+        finally:
+            if pwf:
+                os.unlink(pwf)
+        return ("MQTT OK: " if rc == 0 else "MQTT ERROR: ") + (out.splitlines()[-1] if out else "")
+
+    def finish(self, lg, code):
+        """lg/code None: nothing to log in -> back to the (possibly new) dashboard"""
+        if lg:
+            save_kiosk_url(dash_url_clean(lg.base + lg.path))
+        self.msg = "done - opening the dashboard"
+        self.done = True
+        cb = lg.callback_url(code) if lg else None
+        # stop after the phone got its answer
+        threading.Timer(2.0, lambda: (self.stop(), KIOSK.dashboard(once_url=cb))).start()
+
+
+# ------------------------------------------------------------------ SSH
+SSH_KEYS = "/data/ssh/authorized_keys/admin"
+SSH_PASS = "/data/ssh/admin.passwd"
+PUBKEY_RE = re.compile(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|"
+                       r"sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com) "
+                       r"[A-Za-z0-9+/=]{40,}( [ -~]{0,100})?$")
+
+
+def ssh_state():
+    names = []
+    try:
+        for line in open(SSH_KEYS):
+            p = line.split()
+            if len(p) >= 2 and not line.startswith("#"):
+                names.append(" ".join(p[2:]) or p[0])
+    except OSError:
+        pass
+    return {"keys": names, "password": os.path.exists(SSH_PASS),
+            "failsafe": os.path.exists("/etc/ssh/failsafe_keys/admin")}
+
+
+def _add_key(line, replace):
+    os.makedirs(os.path.dirname(SSH_KEYS), exist_ok=True)
+    old = []
+    if not replace and os.path.exists(SSH_KEYS):
+        old = [l for l in open(SSH_KEYS).read().splitlines() if l.strip()]
+    tmp = SSH_KEYS + ".tmp"
+    with open(tmp, "w") as f:
+        f.write("\n".join(old + [line]) + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, SSH_KEYS)
+    # sshd also reads the home dir copy: keep both the same
+    sh("install", "-D", "-o", "admin", "-g", "admin", "-m", "600", SSH_KEYS, "/home/admin/.ssh/authorized_keys")
+
+
+def ssh_apply(o):
+    """-> (message, private key or None)"""
+    mode = o.get("mode")
+    replace = bool(o.get("replace"))
+    priv = None
+    if mode == "pubkey":
+        key = " ".join((o.get("pubkey") or "").split())
+        if not PUBKEY_RE.match(key):
+            raise HAError("SSH: that is not a valid public key (ssh-ed25519 AAAA... name)")
+        _add_key(key, replace)
+        msg = "SSH: public key added" + (" (other keys removed)" if replace else "")
+    elif mode == "genkey":
+        tmp = f"{RUN}/k.{secrets.token_hex(4)}"
+        rc, out = sh("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C",
+                     f"admin@{socket.gethostname()}", "-f", tmp)
+        if rc:
+            raise HAError("SSH: ssh-keygen failed: " + out)
+        try:
+            priv = open(tmp).read()
+            _add_key(open(tmp + ".pub").read().strip(), replace)
+        finally:
+            for f in (tmp, tmp + ".pub"):
+                try:
+                    os.unlink(f)
+                except OSError:
+                    pass
+        msg = "SSH: new key pair made - save the private key now, the panel does not keep it"
+    elif mode == "password":
+        pw = o.get("password") or ""
+        if len(pw) < 10:
+            raise HAError("SSH: the password needs at least 10 characters")
+        p = subprocess.run(["openssl", "passwd", "-6", "-stdin"], input=pw,
+                           capture_output=True, text=True)
+        if p.returncode:
+            raise HAError("SSH: could not hash the password")
+        os.makedirs(os.path.dirname(SSH_PASS), exist_ok=True)
+        fd = os.open(SSH_PASS + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.write(fd, p.stdout.strip().encode())
+        os.close(fd)
+        os.replace(SSH_PASS + ".tmp", SSH_PASS)
+        msg = "SSH: password set for user admin"
+    elif mode == "nopassword":
+        try:
+            os.unlink(SSH_PASS)
+        except FileNotFoundError:
+            pass
+        msg = "SSH: password login off (keys only)"
+    else:
+        return "", None
+    # px30-ssh-prepare applies the password + PasswordAuthentication (also at
+    # every sshd start, so it survives updates)
+    sh("/usr/local/sbin/px30-ssh-prepare")
+    if sh("systemctl", "is-active", "ssh.service")[1].strip() == "active":
+        sh("systemctl", "reload-or-restart", "ssh.service")
+    return msg, priv
+
+
+# ------------------------------------------------------------- services
+# Optional services that may be turned off to save CPU/RAM. The choice is kept
+# on /data (survives updates) and applied at every start of px30-panel.
+SERVICES = {
+    "audio": {"units": ["px30-audio.service"], "label": "Audio (speaker)"},
+    "ssh": {"units": ["ssh.service"], "label": "SSH server"},
+}
+SERVICES_FILE = f"{DATA}/services.json"
+
+
+def services_load():
+    try:
+        v = json.load(open(SERVICES_FILE))
+        return {k: bool(v[k]) for k in SERVICES if k in v}
+    except (OSError, ValueError, TypeError, KeyError):
+        return {}
+
+
+def services_state():
+    want = services_load()
+    out = {}
+    for k, v in SERVICES.items():
+        en = sh("systemctl", "is-enabled", v["units"][0])[1].strip() == "enabled"
+        out[k] = {"label": v["label"], "on": want.get(k, en)}
+    return out
+
+
+def services_apply(choice, save=True):
+    """choice: {name: bool}; only changes are applied"""
+    msgs = []
+    want = services_load()
+    for k, on in choice.items():
+        if k not in SERVICES or not isinstance(on, bool):
+            continue
+        want[k] = on
+        for u in SERVICES[k]["units"]:
+            en = sh("systemctl", "is-enabled", u)[1].strip() == "enabled"
+            act_ = sh("systemctl", "is-active", u)[1].strip() == "active"
+            if en == on and act_ == on:
+                continue
+            sh("systemctl", "enable" if on else "disable", "--now", u, timeout=60)
+            msgs.append(f"{SERVICES[k]['label']}: {'on' if on else 'off'}")
+    if save:
+        os.makedirs(DATA, exist_ok=True)
+        with open(SERVICES_FILE + ".tmp", "w") as f:
+            json.dump(want, f)
+        os.replace(SERVICES_FILE + ".tmp", SERVICES_FILE)
+    return msgs
+
+
+SETUP = Setup()
+
+
+# ------------------------------------------------------------- HTTP servers
+def page(name):
+    with open(f"{WWW}/{name}", "rb") as f:
+        return f.read()
+
+
+class Base(http.server.BaseHTTPRequestHandler):
+    server_version = "px30-panel"
+    timeout = 20     # also bounds the TLS handshake (done in the handler thread)
+
+    def log_message(self, *a):
+        pass
+
+    def send(self, code, body, ctype="application/json"):
+        if isinstance(body, (dict, list)):
+            body = json.dumps(body).encode()
+        elif isinstance(body, str):
+            body = body.encode()
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def body(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > 16384:
+            raise ValueError("too large")
+        return json.loads(self.rfile.read(n) or b"{}")
+
+
+class LocalHandler(Base):
+    """127.0.0.1:8088 - pages shown in the kiosk."""
+
+    def ok_origin(self):
+        if self.headers.get("Host") != f"127.0.0.1:{LOCAL_PORT}":
+            return False
+        o = self.headers.get("Origin")
+        return o in (None, LOCAL)
+
+    def ok_token(self, tok):
+        return bool(KIOSK.token) and tok is not None and secrets.compare_digest(tok, KIOSK.token)
+
+    def do_GET(self):
+        if not self.ok_origin():
+            return self.send(403, {"error": "origin"})
+        u = urllib.parse.urlsplit(self.path)
+        q = dict(urllib.parse.parse_qsl(u.query))
+        if u.path in ("/menu", "/screen"):
+            if not self.ok_token(q.get("k")):
+                return self.send(403, "expired - tap twice in every corner again", "text/plain; charset=utf-8")
+            return self.send(200, page(u.path[1:] + ".html"), "text/html; charset=utf-8")
+        if u.path == "/api/state":
+            if not self.ok_token(self.headers.get("X-Token")):
+                return self.send(403, {"error": "token"})
+            KIOSK.touched = time.monotonic()
+            st = {"mode": KIOSK.mode}
+            if KIOSK.mode == "setup":
+                st.update(url=SETUP.url(), pin=SETUP.pin, fp=getattr(SETUP, "fp", ""),
+                          msg=SETUP.msg, done=SETUP.done, configured=configured(),
+                          left=max(0, int(SETUP.until - time.monotonic())))
+                if q.get("qr"):
+                    st["qr"] = SETUP.qr_svg()
+            else:
+                st.update(status())
+            return self.send(200, st)
+        self.send(404, {"error": "not found"})
+
+    def do_POST(self):
+        if not self.ok_origin() or not self.ok_token(self.headers.get("X-Token")):
+            return self.send(403, {"error": "token"})
+        if self.path != "/api/action":
+            return self.send(404, {"error": "not found"})
+        try:
+            d = self.body()
+        except ValueError as e:
+            return self.send(400, {"error": str(e)})
+        KIOSK.touched = time.monotonic()
+        name = d.get("action", "")
+        if name == "service":
+            m = services_apply({str(d.get("name")): d.get("on")})
+            return self.send(200, {"ok": True, "msg": "; ".join(m) or "unchanged"})
+        if name == "setup_cancel":
+            SETUP.stop()
+            if configured():
+                KIOSK.dashboard()
+            else:
+                menu()
+            return self.send(200, {"ok": True})
+        ok, msg = act(name)
+        self.send(200 if ok else 400, {"ok": ok, "msg": msg})
+
+
+class SetupHandler(Base):
+    """0.0.0.0:8443 (TLS) - setup form for the phone; only while active."""
+
+    def do_GET(self):
+        if not SETUP.active:
+            return self.send(410, "setup not active", "text/plain; charset=utf-8")
+        if urllib.parse.urlsplit(self.path).path == "/setup":
+            return self.send(200, page("setup.html"), "text/html; charset=utf-8")
+        if self.path.startswith("/api/defaults"):
+            if not SETUP.check_pin(self.headers.get("X-Pin")):
+                return self.send(403, {"error": "wrong PIN or setup expired"})
+            mq = {}
+            try:
+                mq = json.load(open("/data/px30-agent/config.json")).get("mqtt", {})
+            except (OSError, ValueError):
+                pass
+            return self.send(200, {"configured": configured(), "dashboard": kiosk_url(),
+                                   "mqtt_host": mq.get("host", ""), "mqtt_port": mq.get("port", ""),
+                                   "mqtt_user": mq.get("username", ""), "mqtt_tls": bool(mq.get("tls")),
+                                   "mqtt_has_password": bool(mq.get("password")),
+                                   "ssh": ssh_state(), "services": services_state()})
+        self.send(404, {"error": "not found"})
+
+    def do_POST(self):
+        if not SETUP.active:
+            return self.send(410, {"error": "setup not active"})
+        if not SETUP.check_pin(self.headers.get("X-Pin")):
+            return self.send(403, {"error": "wrong PIN or setup expired"})
+        try:
+            d = self.body()
+            if self.path == "/api/submit":
+                r = SETUP.submit(d)
+            elif self.path == "/api/mfa":
+                r = SETUP.mfa(d)
+            else:
+                return self.send(404, {"error": "not found"})
+            self.send(200, r)
+        except HAError as e:
+            SETUP.msg = f"error: {e}"
+            self.send(400, {"error": str(e)})
+        except (ValueError, KeyError, TypeError) as e:
+            self.send(400, {"error": f"invalid input: {e}"})
+
+
+# ----------------------------------------------------------------- gesture
+EV_KEY, EV_ABS, BTN_TOUCH = 1, 3, 0x14A
+ABS_X, ABS_Y, ABS_MT_X, ABS_MT_Y = 0x00, 0x01, 0x35, 0x36
+EV_FMT = "llHHi"
+EV_SIZE = struct.calcsize(EV_FMT)
+
+
+def absinfo(fd, code):
+    buf = bytearray(24)
+    fcntl.ioctl(fd, 0x80184540 + code, buf)
+    _val, lo, hi = struct.unpack("6i", buf)[:3]
+    return lo, hi
+
+
+def find_touch():
+    for ev in sorted(glob.glob("/sys/class/input/event*")):
+        try:
+            if TOUCH_NAME in open(f"{ev}/device/name").read().lower():
+                return "/dev/input/" + os.path.basename(ev)
+        except OSError:
+            pass
+    return None
+
+
+def menu():
+    tok = KIOSK.new_token()
+    KIOSK.show("menu", f"{LOCAL}/menu?k={tok}")
+
+
+def gesture_loop():
+    while True:
+        dev = find_touch()
+        if not dev:
+            time.sleep(5)
+            continue
+        try:
+            fd = os.open(dev, os.O_RDONLY)
+            try:
+                xr = absinfo(fd, ABS_MT_X)
+                yr = absinfo(fd, ABS_MT_Y)
+            except OSError:
+                xr, yr = absinfo(fd, ABS_X), absinfo(fd, ABS_Y)
+            log(f"touch {dev} x{xr} y{yr}")
+            x = y = 0
+            down_t, down_pos = None, None
+            taps = {}        # corner -> time of last single tap
+            done = {}        # corner -> time of double tap
+            while True:
+                data = os.read(fd, EV_SIZE * 64)
+                for i in range(0, len(data) - EV_SIZE + 1, EV_SIZE):
+                    _s, _u, typ, code, val = struct.unpack(EV_FMT, data[i:i + EV_SIZE])
+                    if typ == EV_ABS and code in (ABS_MT_X, ABS_X):
+                        x = val
+                    elif typ == EV_ABS and code in (ABS_MT_Y, ABS_Y):
+                        y = val
+                    elif typ == EV_KEY and code == BTN_TOUCH:
+                        now = time.monotonic()
+                        if val == 1:
+                            down_t, down_pos = now, (x, y)
+                            continue
+                        if down_t is None or now - down_t > TAP_S:
+                            down_t = None
+                            continue
+                        down_t = None
+                        fx = (down_pos[0] - xr[0]) / max(1, xr[1] - xr[0])
+                        fy = (down_pos[1] - yr[0]) / max(1, yr[1] - yr[0])
+                        c = None
+                        if fx < CORNER or fx > 1 - CORNER:
+                            if fy < CORNER or fy > 1 - CORNER:
+                                c = ("L" if fx < 0.5 else "R") + ("T" if fy < 0.5 else "B")
+                        if not c:
+                            continue
+                        if c in taps and now - taps[c] < DOUBLE_S:
+                            done[c] = now
+                            taps.pop(c)
+                        else:
+                            taps[c] = now
+                        done = {k: t for k, t in done.items() if now - t < GESTURE_S}
+                        if len(done) == 4:
+                            done.clear()
+                            taps.clear()
+                            log("gesture -> menu")
+                            if KIOSK.mode is None:
+                                menu()
+        except OSError as e:
+            log("touch:", e)
+            time.sleep(3)
+
+
+def idle_loop():
+    while True:
+        time.sleep(10)
+        with LOCK:
+            if KIOSK.mode == "menu" and time.monotonic() - KIOSK.touched > MENU_IDLE_S:
+                log("menu idle -> dashboard")
+                KIOSK.dashboard()
+            if SETUP.active and time.monotonic() > SETUP.until:
+                log("setup expired")
+                SETUP.stop()
+                if configured():
+                    KIOSK.dashboard()
+                else:
+                    menu()
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ("menu", "setup", "dashboard"):
+        # trigger in the running daemon (ssh): via the local API is not possible
+        # without a token -> signal
+        sig = {"menu": "SIGUSR1", "setup": "SIGUSR2", "dashboard": "SIGHUP"}[sys.argv[1]]
+        rc, out = sh("systemctl", "kill", "-s", sig, "px30-panel.service")
+        print(out or "ok")
+        return rc
+    import signal
+    signal.signal(signal.SIGUSR1, lambda *_: threading.Thread(target=menu).start())
+    signal.signal(signal.SIGUSR2, lambda *_: threading.Thread(target=SETUP.start).start())
+    signal.signal(signal.SIGHUP, lambda *_: threading.Thread(target=KIOSK.dashboard).start())
+    KIOSK._clear_url()
+    want = services_load()
+    if want:
+        threading.Thread(target=services_apply, args=(want, False), daemon=True).start()
+    # radio: only the chosen stack runs (choice on /data, survives updates)
+    threading.Thread(target=sh, args=("/usr/local/sbin/px30-radio", "apply"),
+                     kwargs={"timeout": 60}, daemon=True).start()
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", LOCAL_PORT), LocalHandler)
+    threading.Thread(target=gesture_loop, daemon=True).start()
+    threading.Thread(target=idle_loop, daemon=True).start()
+    if not configured():
+        log("not configured -> setup")
+        threading.Timer(1.0, SETUP.start).start()
+    srv.serve_forever()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

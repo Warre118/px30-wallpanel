@@ -1,0 +1,3 @@
+# Backlight writable for group video (px30-agent fallback when proximity-wake
+# is not running; proximity-wake itself runs as root).
+ACTION=="add", SUBSYSTEM=="backlight", RUN+="/bin/chgrp video /sys%p/brightness /sys%p/bl_power", RUN+="/bin/chmod g+w /sys%p/brightness /sys%p/bl_power"

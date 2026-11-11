@@ -1,0 +1,31 @@
+#!/bin/sh
+# USB-netwerk (CDC-NCM) op de OTG-poort: de PC krijgt via DHCP een adres in
+# 10.55.0.0/24, het panel is 10.55.0.1 -> ssh admin@10.55.0.1
+# Werkt los van Wi-Fi. Windows 10/11 heeft een ingebouwde NCM-driver.
+set -e
+G=/sys/kernel/config/usb_gadget/px30
+modprobe libcomposite
+mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config
+[ -d "$G" ] && exit 0
+mkdir -p "$G"
+cd "$G"
+echo 0x1d6b > idVendor          # Linux Foundation
+echo 0x0104 > idProduct         # Multifunction Composite Gadget
+echo 0x0100 > bcdDevice
+echo 0x0200 > bcdUSB
+echo 0xEF > bDeviceClass        # IAD: nodig voor Windows' NCM-driver
+echo 0x02 > bDeviceSubClass
+echo 0x01 > bDeviceProtocol
+mkdir -p strings/0x409
+echo "Debian" > strings/0x409/manufacturer
+echo "PX30 wall panel" > strings/0x409/product
+cat /etc/machine-id 2>/dev/null | cut -c1-16 > strings/0x409/serialnumber || true
+mkdir -p configs/c.1/strings/0x409
+echo "NCM" > configs/c.1/strings/0x409/configuration
+echo 250 > configs/c.1/MaxPower
+mkdir -p functions/ncm.usb0
+# vaste MAC-adressen (lokaal beheerd), zodat Windows het netwerk herkent
+echo 02:50:58:33:30:01 > functions/ncm.usb0/host_addr
+echo 02:50:58:33:30:02 > functions/ncm.usb0/dev_addr
+ln -s functions/ncm.usb0 configs/c.1/
+ls /sys/class/udc | head -1 > UDC

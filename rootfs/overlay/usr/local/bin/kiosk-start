@@ -1,0 +1,45 @@
+#!/bin/sh
+# Start Cog (WPE WebKit) rechtstreeks op KMS/DRM; geen compositor nodig.
+. /etc/kiosk/kiosk.conf
+# eigen instellingen (blijven bewaard bij herinstallatie)
+[ -r /data/kiosk/kiosk.conf ] && . /data/kiosk/kiosk.conf
+# Let op: Cog kijkt enkel OF deze variabele bestaat -> ook "=0" zet de cursor aan.
+unset COG_PLATFORM_DRM_CURSOR
+LOADER=/usr/share/kiosk/loader.html
+
+# Overdracht van de opstartanimatie zonder zwart scherm:
+# - 'plymouth deactivate' geeft DRM-master vrij, maar het laatste beeld blijft
+#   op het scherm (plymouthd leeft nog, zijn framebuffer dus ook);
+# - Cog neemt het scherm over en toont loader.html met dezelfde animatie tot
+#   Home Assistant bereikbaar is (vervangt ook het wachten op Wi-Fi);
+# - pas daarna 'plymouth quit'. Bij 'quit' sluit plymouthd zijn framebuffer
+#   en zet de kernel het scherm op de (zwarte) fbcon -> dat mag pas als Cog tekent.
+# plymouth-quit(-wait).service zijn gemaskeerd, dus enkel wij sluiten Plymouth af.
+if sudo -n /usr/bin/plymouth --ping 2>/dev/null; then
+	sudo -n /usr/bin/plymouth deactivate 2>/dev/null || true
+	( sleep 20; sudo -n /usr/bin/plymouth quit --retain-splash 2>/dev/null ) &
+fi
+# console: empty and quiet (no motd/"Killed" visible between two cog starts)
+printf '[2J[H[?25l' 2>/dev/null
+exec </dev/null >/dev/null 2>&1
+while true; do
+	# A non-root cog only becomes DRM master if nobody holds it at open time:
+	# wait until the previous cog and its WebKit processes are really gone.
+	for i in 1 2 3 4 5 6 7 8 9 10; do
+		pgrep -u "$(id -u)" -x cog >/dev/null || pgrep -u "$(id -u)" -f "WPE(Web|Network|GPU)Process" >/dev/null || break
+		sleep 0.3
+	done
+	pkill -KILL -u "$(id -u)" -x cog; pkill -KILL -u "$(id -u)" -f "WPE(Web|Network|GPU)Process"
+	# settings may change at runtime (setup via px30-panel)
+	. /etc/kiosk/kiosk.conf
+	[ -r /data/kiosk/kiosk.conf ] && . /data/kiosk/kiosk.conf
+	# px30-panel (rescue menu / setup / HA login): its URL takes precedence
+	if [ -r /run/px30-panel/url ]; then
+		URL=$(head -n1 /run/px30-panel/url)
+	else
+		URL="file://$LOADER#$KIOSK_URL"
+	fi
+	# output to the journal (journalctl -t kiosk-cog): WebKit crashes are otherwise invisible
+	cog --platform=drm $COG_OPTS "$URL" 2>&1 | systemd-cat -t kiosk-cog
+	sleep 1   # cog gecrasht, afgesloten of door px30-panel herstart -> opnieuw
+done

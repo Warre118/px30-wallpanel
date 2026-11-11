@@ -1,0 +1,5 @@
+# OpenThread Border Router op het Smatek PX30-wallpanel.
+# RCP = TYZS13 (EFR32MG13) op UART5 = /dev/ttyThread (udev-symlink), 115200 baud, RTS/CTS.
+# Backbone = wlan0. REST-API (Home Assistant "OpenThread Border Router"-integratie)
+# luistert op poort 8081.
+OTBR_AGENT_OPTS="-I wpan0 -B wlan0 --rest-listen-port 8081 spinel+hdlc+uart:///dev/ttyThread?uart-baudrate=115200&uart-flow-control"

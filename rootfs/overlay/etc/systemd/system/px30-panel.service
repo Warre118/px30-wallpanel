@@ -1,0 +1,15 @@
+[Unit]
+Description=PX30 panel: on-screen rescue menu (touch gesture) and setup via phone
+After=local-fs.target network.target
+Before=getty@tty1.service
+
+[Service]
+ExecStart=/usr/local/sbin/px30-panel
+Restart=always
+RestartSec=3
+RuntimeDirectory=px30-panel
+RuntimeDirectoryPreserve=yes
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

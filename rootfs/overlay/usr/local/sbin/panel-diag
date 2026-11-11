@@ -1,0 +1,32 @@
+#!/bin/sh
+# Diagnose voor het beeld (debugfase): schrijft de toestand van DRM/DSI,
+# regulators, GPIO's en backlight naar de console (seriële kabel) en naar
+# /var/log/panel-diag.txt (ook leesbaar vanuit Android: stback read-only mounten).
+# Wordt verwijderd zodra het beeld werkt.
+OUT=/var/log/panel-diag.txt
+mountpoint -q /sys/kernel/debug || mount -t debugfs none /sys/kernel/debug
+{
+  echo "===== panel-diag $(date -Is) ====="
+  echo "--- cmdline"; cat /proc/cmdline
+  echo "--- connectors"
+  for c in /sys/class/drm/card*-*; do
+    echo "$c: status=$(cat $c/status) enabled=$(cat $c/enabled) dpms=$(cat $c/dpms) modes=$(tr '\n' ' ' < $c/modes)"
+  done
+  echo "--- backlight"
+  for b in /sys/class/backlight/*; do
+    echo "$b: brightness=$(cat $b/brightness)/$(cat $b/max_brightness) actual=$(cat $b/actual_brightness) bl_power=$(cat $b/bl_power)"
+  done
+  echo "--- dri/0/state"; cat /sys/kernel/debug/dri/0/state 2>&1 | head -80
+  echo "--- dri clients"; cat /sys/kernel/debug/dri/0/clients 2>&1
+  echo "--- regulators"; cat /sys/kernel/debug/regulator/regulator_summary 2>&1 | head -60
+  echo "--- clocks (dsi/vop/pclk)"; grep -iE "dsi|vop|dclk|mipi" /sys/kernel/debug/clk/clk_summary 2>&1 | head -40
+  echo "--- gpio3"; sed -n '/gpio3/,/gpio4/p' /sys/kernel/debug/gpio 2>&1 | head -40
+  echo "--- pwm"; cat /sys/kernel/debug/pwm 2>&1
+  echo "--- dmesg (drm/dsi/panel/st7701/backlight/phy)"
+  dmesg | grep -iE "drm|dsi|panel|st7701|backlight|dphy|vop|fb0|fbcon" | tail -80
+  echo "===== einde panel-diag ====="
+  echo "--- netwerk"; ip -br addr
+} > "$OUT" 2>&1
+sync
+cat "$OUT"
+journalctl --flush 2>/dev/null; sync

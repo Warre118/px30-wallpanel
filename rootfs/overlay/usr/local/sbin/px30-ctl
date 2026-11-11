@@ -1,0 +1,49 @@
+#!/bin/sh
+# px30-ctl: boot state, rescue mode and factory reset of the PX30 panel.
+#
+#   px30-ctl status          slot, boot counter, pending request
+#   px30-ctl boot-ok         mark this boot as good (px30-boot-ok.timer, 30 s
+#                            after boot): counter 0, keep the slot
+#   px30-ctl rescue          reboot into rescue mode (ssh root@10.55.0.1 via USB)
+#   px30-ctl reinstall       reinstall the system from the factory image,
+#                            keep settings (Wi-Fi, keys, Thread)   -> reboots
+#   px30-ctl factory-reset   reinstall AND wipe all settings        -> reboots
+#
+# The state is a text record in the misc partition (see px30-state.sh); the
+# initramfs counts every boot start and switches to rescue after 3 failures.
+set -eu
+[ "$(id -u)" = 0 ] || exec sudo -n "$0" "$@"
+. /usr/local/lib/px30/px30-state.sh
+
+request() { # action
+	state_load
+	action=$1
+	state_save
+	echo "requested: $1 -> reboot"
+	systemctl reboot
+}
+
+case "${1:-status}" in
+status)
+	state_load
+	state_show
+	echo "root: $(findmnt -no SOURCE /)   data: $(findmnt -no SOURCE /data 2>/dev/null || echo -)"
+	;;
+boot-ok)
+	state_load
+	tries=0; rescues=0; fallback=
+	state_save
+	# identity on /data (first boot after a factory reset / install)
+	if mountpoint -q /data; then
+		[ -s /data/machine-id ] || cp /etc/machine-id /data/machine-id
+		[ -s /data/hostname ] || cp /etc/hostname /data/hostname
+		# admin's ssh keys survive a reinstall (sshd also reads this file)
+		if [ -s /home/admin/.ssh/authorized_keys ] && [ ! -s /data/ssh/authorized_keys/admin ]; then
+			install -d -m 755 /data/ssh/authorized_keys
+			install -m 644 /home/admin/.ssh/authorized_keys /data/ssh/authorized_keys/admin
+		fi
+	fi
+	;;
+rescue | reinstall | factory-reset) request "$1" ;;
+*) sed -n '2,13p' "$0"; exit 1 ;;
+esac

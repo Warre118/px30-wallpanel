@@ -1,0 +1,16 @@
+[Unit]
+Description=PX30 speaker: output on SPK, keep the amplifier powered (silence via dmix)
+After=sound.target alsa-restore.service
+
+[Service]
+Type=simple
+# speaker output + default volume (dB scale -95..0; 150/255 ~ -39 dB)
+ExecStartPre=/usr/bin/amixer -q -c 0 cset name='Playback Mux' SPK
+ExecStartPre=/usr/bin/amixer -q -c 0 cset name='Master Playback Volume' 150,150
+ExecStart=/usr/bin/aplay -q -D dmixed -t raw -f S16_LE -r 48000 -c 2 /dev/zero
+Restart=always
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,3 @@
+# Vaste naam voor de UART van de Zigbee/Thread-module (UART5 @ ff178000),
+# los van de ttyS-nummering. TAG systemd -> dev-ttyThread.device bestaat.
+SUBSYSTEM=="tty", KERNELS=="ff178000.serial", SYMLINK+="ttyThread", TAG+="systemd"

@@ -1,0 +1,163 @@
+# Zigbee / Thread radio module
+
+## The module
+
+- **Tuya TYZS13** = Silicon Labs **EFR32MG13P732F512GM48** (512 KB flash,
+  64 KB RAM), with a 38.4 MHz HFXO, no LFXO (LFRCO is used), and DC-DC on.
+- Connected to PX30 **UART5** (`ff178000.serial`) with RTS/CTS. A udev rule
+  makes it `/dev/ttyThread`.
+- Pinout on the module: USART0 TX PA0 (LOC0), RX PA1 (LOC0), CTS PF4 (LOC24),
+  RTS PA2 (LOC29).
+- Stock firmware: EmberZNet 6.5.0.0 (EZSP v7), with Gecko Bootloader 1.8.0 in the
+  separate bootloader flash.
+- The pads above the module on the PCB are UART5. They are handy as a serial
+  console for debugging (`boot/dtb-uart5-noflow.py`).
+
+## Firmware builds
+
+Built in WSL with Gecko SDK 4.4.6, slc-cli, Arm GCC 12.2 and Simplicity
+Commander (`zigbee/fetch-toolchain.sh`):
+
+| Script | Result |
+|---|---|
+| `zigbee/gen-ot-rcp.sh` + `zigbee/build-ot-rcp.sh` | OpenThread RCP, 115200 baud, hardware flow control, **with return to the bootloader** (`-btl`) |
+| `zigbee/gen-ncp.sh` + `zigbee/build-ncp.sh` | EmberZNet 7.5.0.0 NCP (EZSP v13), same pinout |
+| `zigbee/build-otbr.sh` | `otbr-agent` + `ot-ctl` for arm64, from the same OpenThread commit as the RCP |
+
+Details:
+
+- `patch-ot-rcp.py` and `patch-ncp.py` set the pinout and clocks. They enable
+  `OPENTHREAD_CONFIG_PLATFORM_BOOTLOADER_MODE_ENABLE`, which is 0 by default in
+  GSDK 4.4.6. Without it, the RCP ignores the Spinel "reset to bootloader" command.
+- The build scripts check in the disassembly that the bootloader return is there.
+- NVM3 sits at the same place (0x77000–0x7FFFF) in both images, so switching
+  stacks keeps both stacks' keys.
+- The firmware lands in `${PX30_OUT:-~/px30-out}/zigbee/` and, for the image,
+  in `RADIO_DIST`. `rootfs/build-rootfs.sh` puts it in
+  `/usr/share/px30-radio/firmware/` with a `catalog.json`.
+
+## First flash: SWD (once)
+
+The stock EmberZNet firmware cannot be replaced over UART reliably, and a
+first RCP build without bootloader return can't either. The first flash of the
+`-btl` RCP is done with a debug probe over SWD. After that, every switch goes
+over UART.
+
+**Wiring.** The TYZS13 top row of pads, as mounted with the I-PEX connector at
+the bottom right, from left to right: 19 SWDIO, 18 SWCLK, 17 RX, 16 TX, 15 nRST.
+
+| Module pin | Signal | Pico debugprobe | J-Link |
+|---|---|---|---|
+| 19 | SWDIO | GP3 | SWDIO (pin 7) |
+| 18 | SWCLK | GP2 | SWCLK (pin 9) |
+| 15 | nRST | optional | RESET (pin 15) |
+| 28 | GND | GND | GND |
+| 29/30 | 3V3 | **do not connect** | VTref (pin 1) only |
+
+- The panel stays powered and feeds the module.
+- Stop `otbr-agent` first.
+- Start at 1 MHz.
+
+**Memory map (xG13):**
+
+| Region | Address | Notes |
+|---|---|---|
+| main flash | 0x0–0x7FFFF | the application starts at 0x0; NVM3 at 0x77000 |
+| user data | 0x0FE00000 | |
+| lock bits | 0x0FE04000 | |
+| bootloader flash | 0x0FE10000–0x0FE13FFF | Gecko Bootloader. **Never erase it**: without it there is no UART switching. Do not use mass erase or a page erase of `@bootloader` |
+
+**OpenOCD with CMSIS-DAP.** OpenOCD 0.12 knows the chip ("EFR32MG13P Mighty"):
+
+```sh
+ocd() { openocd -f interface/cmsis-dap.cfg -c 'transport select swd' -c 'adapter speed 1000' -f target/efm32.cfg "$@"; }
+ocd -c init -c 'reset halt' -c 'flash info 0' -c shutdown                 # identify
+ocd -c init -c 'reset halt' \
+  -c 'dump_image tyzs13-main-512k.bin 0x00000000 0x80000' \
+  -c 'dump_image tyzs13-bootloader-16k.bin 0x0FE10000 0x4000' -c shutdown  # backup first
+ocd -c "program ot-rcp-tyzs13-gsdk4.4.6-115200-hwflow-btl.hex verify reset exit"
+ocd -c init -c 'reset halt' -c 'dump_image bl-after.bin 0x0FE10000 0x4000' -c shutdown
+cmp bl-after.bin tyzs13-bootloader-16k.bin && echo bootloader intact
+```
+
+**Simplicity Commander with J-Link:**
+
+```sh
+D="--device EFR32MG13P732F512GM48 --speed 1000"
+commander readmem $D --range 0x00000000:0x00080000 --outfile tyzs13-main-512k.bin
+commander readmem $D --range 0x0FE10000:0x0FE14000 --outfile tyzs13-bootloader-16k.bin
+commander flash  $D ot-rcp-tyzs13-gsdk4.4.6-115200-hwflow-btl.s37
+commander verify $D ot-rcp-tyzs13-gsdk4.4.6-115200-hwflow-btl.s37
+commander device reset $D
+```
+
+If reading fails (all 0xFF), the chip may be debug-locked. Unlocking erases
+main flash and tokens. Check afterwards that the bootloader is still there.
+
+## Thread: OpenThread Border Router on the panel
+
+- `otbr-agent` runs on the panel itself. Spinel over Wi-Fi to a remote host
+  is unreliable.
+- Config in `/etc/default/otbr-agent`: `-I wpan0 -B wlan0`, radio
+  `spinel+hdlc+uart:///dev/ttyThread?uart-baudrate=115200&uart-flow-control`.
+- Built with avahi, border routing, SRP advertising proxy, DNS-SD discovery
+  proxy and REST. Without D-Bus, web UI, TREL and NAT64.
+- State lives in `/data/thread` and survives updates.
+- **Home Assistant:** add the "OpenThread Border Router" integration with URL
+  `http://<panel-ip>:8081`. HA then forms or joins the Thread network.
+- If HA (or the Matter server) runs in Docker, its host must accept route
+  information from router advertisements: `net.ipv6.conf.<if>.accept_ra=1` and
+  `accept_ra_rt_info_max_plen=64`. The Matter container needs `network_mode: host`.
+- **The OTBR REST API has no authentication** and is reachable on the LAN.
+
+## Switching stacks: `px30-radio`
+
+**Untested on hardware.**
+
+```
+px30-radio status                         stack, channel, firmware, service
+px30-radio list                           available firmware (catalog)
+px30-radio switch thread|zigbee [stable|latest] [--yes] [--force]
+px30-radio backup                         Thread: save the active dataset to /data/radio/backup
+px30-radio apply                          (at boot) run only the chosen stack's service
+```
+
+- **Stacks:**
+  - `thread` = OpenThread RCP + `otbr-agent`;
+  - `zigbee` = EmberZNet NCP + `px30-zigbee-bridge`.
+- **Channels:** `stable` / `latest`, from `/usr/share/px30-radio/catalog.json`.
+  A newer `/data/radio/catalog.json` takes precedence.
+- **Warnings before acting** (type the word to confirm, or pass `--yes`):
+  - a stack switch loses the network, and all devices must be paired again;
+  - an update or downgrade within a stack risks it.
+  - For Thread, the active dataset is saved first. For Zigbee, you are told to
+    make a ZHA/Z2M backup.
+- **Flashing** uses `universal-silabs-flasher` (`/opt/usf`) over the bootloader.
+  If it fails, the old stack is restarted and the state is unchanged.
+- **Only one stack runs at a time.** The choice is stored in
+  `/data/radio/state.json` and applied at every start. Without a state file
+  nothing is started; run `px30-radio switch` once.
+- **Zigbee bridge:** the bridge exposes the UART on TCP port 6638. ZHA uses
+  `socket://<panel-ip>:6638`, Zigbee2MQTT uses `adapter: ember`. It listens on
+  `127.0.0.1` only by default. Set `ZIGBEE_LISTEN=0.0.0.0` in
+  `/data/radio/radio.conf` to open it to the LAN, which is **a port without
+  authentication**.
+- **From Home Assistant:** the selects *Radio module* and *Radio module
+  channel*, plus the update entity *Radio module firmware*. All of them need the
+  unlock switch.
+
+Manual switch with the flasher:
+
+```sh
+systemctl stop otbr-agent
+# Thread -> Zigbee
+universal-silabs-flasher --device /dev/ttyThread \
+  --probe-methods spinel:115200,bootloader:115200,ezsp:115200 \
+  flash --firmware ncp-uart-hw-tyzs13-ezsp13-gsdk4.4.6-115200-hwflow.gbl
+# Zigbee -> Thread
+universal-silabs-flasher --device /dev/ttyThread \
+  --probe-methods ezsp:115200,bootloader:115200,spinel:115200 \
+  flash --firmware ot-rcp-tyzs13-gsdk4.4.6-115200-hwflow-btl.gbl
+```
+
+The Gecko bootloader uses no flow control; the applications do.

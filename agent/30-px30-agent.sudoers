@@ -1,0 +1,25 @@
+# px30-agent (Home Assistant via MQTT) may run exactly these commands as root.
+# Exact arguments only: no wildcards, so no MQTT payload can reach a root command.
+# Must match COMMANDS in /usr/local/bin/px30-agent.py.
+Cmnd_Alias PX30_AGENT_CTL = /usr/local/sbin/px30-ctl status, \
+	/usr/local/sbin/px30-ctl rescue, \
+	/usr/local/sbin/px30-ctl reinstall, \
+	/usr/local/sbin/px30-ctl factory-reset
+Cmnd_Alias PX30_AGENT_SYS = /usr/bin/systemctl reboot, \
+	/usr/bin/systemctl enable --now ssh.service, \
+	/usr/bin/systemctl disable --now ssh.service, \
+	/usr/local/sbin/px30-panel dashboard, \
+	/usr/bin/systemctl kill -s HUP proximity-wake.service, \
+	/usr/bin/systemctl kill -s USR1 proximity-wake.service, \
+	/usr/bin/systemctl kill -s USR2 proximity-wake.service, \
+	/usr/local/sbin/px30-panel setup, \
+	/usr/local/sbin/px30-panel menu
+Cmnd_Alias PX30_AGENT_UPD = /usr/local/sbin/px30-update system latest, \
+	/usr/sbin/ot-ctl rcp version
+# radio module: stack + channel (px30-radio shows/handles the network-loss risk)
+Cmnd_Alias PX30_AGENT_RADIO = /usr/local/sbin/px30-radio switch thread stable --yes, \
+	/usr/local/sbin/px30-radio switch thread latest --yes, \
+	/usr/local/sbin/px30-radio switch zigbee stable --yes, \
+	/usr/local/sbin/px30-radio switch zigbee latest --yes
+Defaults:px30-agent !lecture, !syslog
+px30-agent ALL=(root) NOPASSWD: PX30_AGENT_CTL, PX30_AGENT_SYS, PX30_AGENT_UPD, PX30_AGENT_RADIO

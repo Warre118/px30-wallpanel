@@ -1,0 +1,32 @@
+diff --git a/drivers/usb/dwc2/params.c b/drivers/usb/dwc2/params.c
+index 091bfcfef..f3dd131e3 100644
+--- a/drivers/usb/dwc2/params.c
++++ b/drivers/usb/dwc2/params.c
+@@ -114,6 +114,16 @@ static void dwc2_set_socfpga_agilex_params(struct dwc2_hsotg *hsotg)
+ 	p->no_clock_gating = true;
+ }
+ 
++/*
++ * PX30 (Smatek wallpanel): in gadget mode with descriptor DMA the controller
++ * never answers the first GET_DESCRIPTOR (Windows: "Device Descriptor Request
++ * Failed", also at full speed). The Rockchip BSP kernel uses buffer DMA.
++ * 0 = PIO, 1 = buffer DMA (default), 2 = descriptor DMA (old behaviour).
++ */
++static int rk_gadget_dma = 1;
++module_param(rk_gadget_dma, int, 0644);
++MODULE_PARM_DESC(rk_gadget_dma, "Rockchip gadget DMA: 0=PIO 1=buffer 2=descriptor");
++
+ static void dwc2_set_rk_params(struct dwc2_hsotg *hsotg)
+ {
+ 	struct dwc2_core_params *p = &hsotg->params;
+@@ -131,6 +141,10 @@ static void dwc2_set_rk_params(struct dwc2_hsotg *hsotg)
+ 	p->besl = false;
+ 	p->hird_threshold_en = false;
+ 	p->no_clock_gating = true;
++	if (rk_gadget_dma < 2)
++		p->g_dma_desc = false;
++	if (rk_gadget_dma < 1)
++		p->g_dma = false;
+ }
+ 
+ static void dwc2_set_ltq_danube_params(struct dwc2_hsotg *hsotg)

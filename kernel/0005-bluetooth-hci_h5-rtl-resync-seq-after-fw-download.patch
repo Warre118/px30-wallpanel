@@ -1,0 +1,45 @@
+diff --git a/drivers/bluetooth/hci_h5.c b/drivers/bluetooth/hci_h5.c
+index b1999e1..c3cbb62 100644
+--- a/drivers/bluetooth/hci_h5.c
++++ b/drivers/bluetooth/hci_h5.c
+@@ -60,6 +60,7 @@ enum {
+ 	H5_WAKEUP_DISABLE,	/* Device cannot wake host */
+ 	H5_HW_FLOW_CONTROL,	/* Use HW flow control */
+ 	H5_CRC,			/* Use CRC */
++	H5_RX_SEQ_RESYNC,	/* Adopt the peer's seq number if it restarts */
+ };
+ 
+ struct h5 {
+@@ -484,6 +485,22 @@ static int h5_rx_3wire_hdr(struct hci_uart *hu, unsigned char c)
+ 		return 0;
+ 	}
+ 
++	/*
++	 * Some Realtek controllers (seen on RTL8723DS) restart their H5 seq
++	 * numbering when the downloaded patch starts, so the command complete
++	 * for the last fragment arrives with an unexpected seq number. The
++	 * vendor rtk_hciattach adopts the controller's number in that case;
++	 * do the same while the firmware download is running. A packet with
++	 * seq == tx_ack - 1 is a retransmission and is still dropped below.
++	 */
++	if (H5_HDR_RELIABLE(hdr) && H5_HDR_SEQ(hdr) != h5->tx_ack &&
++	    test_bit(H5_RX_SEQ_RESYNC, &h5->flags) &&
++	    H5_HDR_SEQ(hdr) != ((h5->tx_ack - 1) & 0x07)) {
++		bt_dev_info(hu->hdev, "Peer restarted seq numbering (%u != %u), resyncing",
++			    H5_HDR_SEQ(hdr), h5->tx_ack);
++		h5->tx_ack = H5_HDR_SEQ(hdr);
++	}
++
+ 	if (H5_HDR_RELIABLE(hdr) && H5_HDR_SEQ(hdr) != h5->tx_ack) {
+ 		bt_dev_err(hu->hdev, "Out-of-order packet arrived (%u != %u)",
+ 			   H5_HDR_SEQ(hdr), h5->tx_ack);
+@@ -973,7 +990,9 @@ static int h5_btrtl_setup(struct h5 *h5)
+ 	if (flow_control)
+ 		set_bit(H5_HW_FLOW_CONTROL, &h5->flags);
+ 
++	set_bit(H5_RX_SEQ_RESYNC, &h5->flags);
+ 	err = btrtl_download_firmware(h5->hu->hdev, btrtl_dev);
++	clear_bit(H5_RX_SEQ_RESYNC, &h5->flags);
+ 	/* Give the device some time before the hci-core sends it a reset */
+ 	usleep_range(10000, 20000);
+ 	if (err)

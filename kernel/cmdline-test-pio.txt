@@ -1,0 +1,1 @@
+root=PARTLABEL=stback rootfstype=ext4 rootwait rw init=/lib/systemd/systemd console=tty1 quiet loglevel=3 splash plymouth.ignore-serial-consoles vt.global_cursor_default=0 dwc2.rk_gadget_dma=0

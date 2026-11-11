@@ -1,0 +1,3 @@
+# systemd-sysusers: system user for px30-agent (video = backlight fallback)
+u px30-agent - "PX30 Home Assistant agent" /nonexistent /usr/sbin/nologin
+m px30-agent video

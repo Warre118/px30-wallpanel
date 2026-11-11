@@ -1,0 +1,14 @@
+[Unit]
+Description=Beelddiagnose naar de seriële console (debugfase)
+After=plymouth-start.service
+
+[Service]
+# simple + sleep: blokkeert het opstarten niet, draait ~20 s na de start
+Type=simple
+ExecStartPre=/bin/sleep 20
+ExecStart=/usr/local/sbin/panel-diag
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

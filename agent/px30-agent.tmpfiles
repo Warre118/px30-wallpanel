@@ -1,0 +1,3 @@
+# /data/px30-agent: agent config + state (survives a reinstall, wiped by factory reset)
+d /data/px30-agent 0750 px30-agent px30-agent -
+z /data/px30-agent/config.json 0600 px30-agent px30-agent -

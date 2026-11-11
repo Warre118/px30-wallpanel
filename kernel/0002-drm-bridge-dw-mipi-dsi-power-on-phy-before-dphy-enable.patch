@@ -1,0 +1,108 @@
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c b/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
+index 5dd475fca..213b7f15d 100644
+--- a/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
++++ b/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
+@@ -19,6 +19,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/reset.h>
++#include <linux/workqueue.h>
+ 
+ #include <video/mipi_display.h>
+ 
+@@ -271,6 +272,8 @@ struct dw_mipi_dsi {
+ 
+ 	struct drm_display_mode mode;
+ 	const struct dw_mipi_dsi_plat_data *plat_data;
++
++	struct delayed_work relink_work; /* PX30: late host restart */
+ };
+ 
+ /*
+@@ -938,12 +941,29 @@ static void dw_mipi_dsi_clear_err(struct dw_mipi_dsi *dsi)
+ 	dsi_write(dsi, DSI_INT_MSK1, 0);
+ }
+ 
++static void dw_mipi_dsi_relink(struct dw_mipi_dsi *dsi)
++{
++	dsi_write(dsi, DSI_PWR_UP, RESET);
++	usleep_range(1000, 2000);
++	dsi_write(dsi, DSI_PWR_UP, POWERUP);
++}
++
++static void dw_mipi_dsi_relink_work(struct work_struct *work)
++{
++	struct dw_mipi_dsi *dsi = container_of(to_delayed_work(work),
++					       struct dw_mipi_dsi, relink_work);
++
++	dw_mipi_dsi_relink(dsi);
++}
++
+ static void dw_mipi_dsi_bridge_post_atomic_disable(struct drm_bridge *bridge,
+ 						   struct drm_atomic_commit *state)
+ {
+ 	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
+ 	const struct dw_mipi_dsi_phy_ops *phy_ops = dsi->plat_data->phy_ops;
+ 
++	cancel_delayed_work_sync(&dsi->relink_work);
++
+ 	/*
+ 	 * Switch to command mode before panel-bridge post_disable &
+ 	 * panel unprepare.
+@@ -1015,15 +1035,23 @@ static void dw_mipi_dsi_mode_set(struct dw_mipi_dsi *dsi,
+ 	if (ret)
+ 		DRM_DEBUG_DRIVER("Phy init() failed\n");
+ 
++	/*
++	 * Power on (= program the PLL and reset the digital part of) an
++	 * external PHY *before* the host releases the PHY interface and waits
++	 * for lock, as the Rockchip vendor driver does. Powering it on
++	 * afterwards leaves the host lane state machines out of sync with the
++	 * inno DSI DPHY on PX30: LP commands work, but HS video never reaches
++	 * the panel (black screen) until the host is reset again.
++	 */
++	if (phy_ops->power_on)
++		phy_ops->power_on(dsi->plat_data->priv_data);
++
+ 	dw_mipi_dsi_dphy_enable(dsi);
+ 
+ 	dw_mipi_dsi_wait_for_two_frames(adjusted_mode);
+ 
+ 	/* Switch to cmd mode for panel-bridge pre_enable & panel prepare */
+ 	dw_mipi_dsi_set_mode(dsi, 0);
+-
+-	if (phy_ops->power_on)
+-		phy_ops->power_on(dsi->plat_data->priv_data);
+ }
+ 
+ static void dw_mipi_dsi_bridge_atomic_pre_enable(struct drm_bridge *bridge,
+@@ -1056,6 +1084,21 @@ static void dw_mipi_dsi_bridge_atomic_enable(struct drm_bridge *bridge,
+ 	dw_mipi_dsi_set_mode(dsi, MIPI_DSI_MODE_VIDEO);
+ 	if (dsi->slave)
+ 		dw_mipi_dsi_set_mode(dsi->slave, MIPI_DSI_MODE_VIDEO);
++
++	/*
++	 * PX30 + inno DSI DPHY (Smatek wall panel): the first video-mode start
++	 * after a modeset frequently produces no HS video at the panel (black
++	 * screen, all registers correct). Restarting the host core once the
++	 * DPI stream from the VOP is running reliably recovers the link.
++	 */
++	dw_mipi_dsi_wait_for_two_frames(&dsi->mode);
++	dw_mipi_dsi_relink(dsi);
++	/*
++	 * ...and once more after the panel's enable() and the first page
++	 * flips: an early restart alone still left the screen black on some
++	 * boots (vendor U-Boot had initialised the display before).
++	 */
++	schedule_delayed_work(&dsi->relink_work, msecs_to_jiffies(300));
+ }
+ 
+ static enum drm_mode_status
+@@ -1205,6 +1248,7 @@ __dw_mipi_dsi_probe(struct platform_device *pdev,
+ 		return ERR_CAST(dsi);
+ 
+ 	dsi->dev = dev;
++	INIT_DELAYED_WORK(&dsi->relink_work, dw_mipi_dsi_relink_work);
+ 	dsi->plat_data = plat_data;
+ 
+ 	if (!plat_data->phy_ops->init || !plat_data->phy_ops->get_lane_mbps ||

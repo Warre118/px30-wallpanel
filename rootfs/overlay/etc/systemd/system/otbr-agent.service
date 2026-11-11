@@ -1,0 +1,20 @@
+[Unit]
+Description=OpenThread Border Router agent (TYZS13-RCP op /dev/ttyThread = UART5)
+# Niet network-online.target: wait-online wacht ook op usb0 (gadget) en hangt dan 2 min.
+# otbr-agent volgt zelf de status van wlan0.
+Wants=avahi-daemon.service
+After=network.target avahi-daemon.service iwd.service dev-ttyThread.device
+# wacht op de udev-symlink (60-px30-serial.rules); stopt mee als hij verdwijnt
+BindsTo=dev-ttyThread.device
+
+[Service]
+EnvironmentFile=-/etc/default/otbr-agent
+StateDirectory=thread
+ExecStartPre=/usr/sbin/sysctl -q -p /etc/sysctl.d/60-otbr.conf
+ExecStart=/usr/sbin/otbr-agent $OTBR_AGENT_OPTS
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

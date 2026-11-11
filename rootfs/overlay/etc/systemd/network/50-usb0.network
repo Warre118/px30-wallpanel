@@ -1,0 +1,14 @@
+# USB-netwerk naar de PC (zie usb-gadget-ncm). Wi-Fi blijft bij iwd.
+[Match]
+Name=usb0
+
+[Network]
+Address=10.55.0.1/24
+DHCPServer=yes
+ConfigureWithoutCarrier=yes
+
+[DHCPServer]
+PoolOffset=10
+PoolSize=10
+EmitDNS=no
+EmitRouter=no
