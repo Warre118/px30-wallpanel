@@ -84,9 +84,17 @@ next to the shield while plugging in power. RKDevTool (Windows) must show
 "LOADER". This is the recovery channel if anything goes wrong; see
 [docs/flashing.md](docs/flashing.md).
 
-### 2. Build
+### 2. Ready-made package (beta) or build it yourself
 
-See [docs/building.md](docs/building.md). In short (WSL):
+The easiest way is the package on the
+[Releases page](https://github.com/Warre118/px30-wallpanel/releases):
+`px30-wallpanel-<version>.zip` holds the images, the install script and an
+`INSTALL.txt` with the RKDevTool steps. It contains no Wi-Fi, SSH key or other
+personal data: Wi-Fi is set up with the hotspot, SSH on the setup page. Read
+the beta warnings in the release notes first. The zip is made with
+`python3 tools/make-package.py <release-dir>`.
+
+To build it yourself, see [docs/building.md](docs/building.md). In short (WSL):
 
 ```sh
 bash kernel/build-kernel.sh all
@@ -95,16 +103,19 @@ SSH_PUBKEY=~/.ssh/id_ed25519.pub WIFI_SSID='...' WIFI_PSK='...' bash rootfs/buil
 bash tools/make-release.sh 2026.11.11-1
 ```
 
-For the very first install, bake in your SSH key and your Wi-Fi. The panel
-has no data partition yet, so the setup page can't provide them. Keep these images private.
+`SSH_PUBKEY`, `WIFI_SSID` and `WIFI_PSK` are optional: without them the panel
+opens its Wi-Fi setup hotspot on the first boot, and rescue mode over USB needs
+no key. Images built with them contain your Wi-Fi password: keep those private.
 
 ### 3. Flash
 
 1. Write `px30-rescue.img` to the Android `recovery` partition, with RKDevTool
    in Loader mode or with `adb root` + `dd`. See
-   [docs/flashing.md](docs/flashing.md#first-install). `uboot`, `trust` and
-   the idblock are **never** touched.
-2. `adb reboot recovery`: the panel starts the PX30 rescue mode and shows
+   [docs/flashing.md](docs/flashing.md#3-first-install) (the package's
+   `INSTALL.txt` has the RKDevTool steps). `uboot`, `trust` and the idblock
+   are **never** touched.
+2. `adb reboot recovery` (or the `misc-boot-recovery.img` row in RKDevTool, see
+   `INSTALL.txt`): the panel starts the PX30 rescue mode and shows
    "rescue mode" on screen. Connect the OTG port to the PC; the panel is now
    `10.55.0.1`.
 3. Install and repartition (Git Bash or Linux):

@@ -70,10 +70,13 @@ Use **RKDevTool** (v3.37 tested) on Windows. It must show "LOADER".
 
 ## 3. First install
 
-You need a release directory (see [building.md](building.md)), preferably
-built with Wi-Fi (`WIFI_SSID`/`WIFI_PSK`) or set up afterwards with the Wi-Fi
-hotspot. Rescue mode lets `root` in over USB without a password, so no key is
-needed for the install itself.
+You need a release directory: the unzipped package from the
+[Releases page](https://github.com/Warre118/px30-wallpanel/releases) (made by
+`tools/make-package.py`, with an `INSTALL.txt`), or your own build (see
+[building.md](building.md)). Wi-Fi is set up afterwards with the Wi-Fi
+hotspot, or baked in at build time (`WIFI_SSID`/`WIFI_PSK`). Rescue mode lets
+`root` in over USB without a password, so no key is needed for the install
+itself.
 
 1. **Write the rescue image to the Android `recovery` partition.** On the stock
    layout `recovery` starts at sector `0x32000` and is 64 MiB. Check
@@ -88,8 +91,11 @@ needed for the install itself.
      adb shell 'dd if=/data/local/tmp/px30-rescue.img of=/dev/block/by-name/recovery bs=1048576 && sync'
      ```
 
-2. **Boot it:** `adb reboot recovery` (or write the `boot-recovery` command to
-   misc). The screen shows the rescue status, and the OTG port becomes a USB
+2. **Boot it:** `adb reboot recovery`. Without adb: in the same RKDevTool run
+   also write `misc-boot-recovery.img` (from the package) at address
+   `0x00008020` (misc `0x8000` + 16 KiB). It holds the Android
+   `boot-recovery` command, so the next power-on starts recovery; rescue mode
+   clears it again. **This misc route is untested.** The screen shows the rescue status, and the OTG port becomes a USB
    network adapter. The panel is `10.55.0.1` and hands out an address by DHCP.
    Windows recognises it as "UsbNcm Host Device".
 3. **Install:**

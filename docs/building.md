@@ -121,6 +121,18 @@ The boot images are Android boot images v0 with the DTB in a Rockchip resource
 Install with `tools/px30-install.sh` (first time) or `tools/px30-ota.sh`
 (updates). See [flashing.md](flashing.md).
 
+For a public package, build **without** `SSH_PUBKEY`, `WIFI_SSID` and
+`WIFI_PSK`, then:
+
+```sh
+python3 tools/make-package.py $PX30_OUT/release-<version>
+```
+
+This writes `px30-wallpanel-<version>.zip` (+ `.sha256`) next to the release
+directory: the release files, `px30-install.sh`, `misc-boot-recovery.img` (an
+Android `boot-recovery` message for misc, untested) and `INSTALL.txt` with
+the RKDevTool steps. Bootloader parts are never included.
+
 ## Other tools
 
 | Tool | |
