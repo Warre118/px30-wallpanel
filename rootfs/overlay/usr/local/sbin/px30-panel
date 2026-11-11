@@ -691,6 +691,13 @@ SETUP = Setup()
 
 
 def _hotspot_show():
+    # The hotspot screen shows only the hotspot PIN. A setup page that is
+    # still open (e.g. https://10.55.0.1:8443 over USB) takes that same PIN,
+    # otherwise its own PIN would be on no screen at all.
+    if SETUP.active and HOTSPOT and HOTSPOT.pin:
+        with LOCK:
+            SETUP.pin = HOTSPOT.pin
+            SETUP.fails = 0
     if KIOSK.mode != "hotspot":
         tok = KIOSK.new_token()
         KIOSK.show("hotspot", f"{LOCAL}/hotspot?k={tok}")
