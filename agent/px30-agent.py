@@ -364,7 +364,26 @@ class Agent:
                     return float(line.split()[3].rstrip("."))
                 except (IndexError, ValueError):
                     return None
-        return None
+        return self.iwd_rssi(iface)
+
+    def iwd_rssi(self, iface):
+        """The kernel has no wireless extensions: ask iwd over D-Bus (allowed for
+        px30-agent by /etc/dbus-1/system.d/px30-agent-iwd.conf)."""
+        def bus(*a):
+            r = subprocess.run(["/usr/bin/busctl", "--json=short", "call", "net.connman.iwd", *a],
+                               capture_output=True, text=True, timeout=5)
+            return json.loads(r.stdout)["data"][0] if r.returncode == 0 and r.stdout else None
+        try:
+            objs = bus("/", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects") or {}
+            path = next((p for p, i in objs.items() if "net.connman.iwd.Station" in i
+                         and i.get("net.connman.iwd.Device", {}).get("Name", {}).get("data") == iface), None)
+            if not path:
+                return None
+            d = bus(path, "net.connman.iwd.StationDiagnostic", "GetDiagnostics") or {}
+            v = d.get("AverageRSSI") or d.get("RSSI")
+            return float(v["data"]) if v else None
+        except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.SubprocessError):
+            return None
 
     def cpu_temp(self):
         temps = []
