@@ -146,9 +146,10 @@ Still to separate:
 
 ## Ideas / not done
 
-- Hotspot provisioning: Wi-Fi QR → captive portal → choose a network → the
-  phone follows the panel to `<hostname>.local`, with a QR code showing the new IP
-  on screen as a fallback.
+- Hotspot provisioning (built, see usage.md): Wi-Fi QR → setup QR → choose a
+  network → the phone follows the panel to `<hostname>.local`, with a QR code
+  showing the new IP on screen as a fallback. A captive-portal window was
+  dropped: on the phone it trapped the user on the hotspot.
 - Signed system updates from GitHub releases (`px30-update`).
 - Microphone (PDM) and a voice satellite.
 - Device tree aliases for stable serial names.

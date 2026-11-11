@@ -46,7 +46,7 @@ Tested on one panel (ST-PX30-T6E, 2021 board). Other Smatek PX30 variants
 | Zigbee | the EmberZNet NCP firmware builds, but the switch between Thread and Zigbee (`px30-radio`) is **untested on hardware** |
 | Radio module | first flash of the bootloader-capable RCP needs **SWD** (a cheap debug probe); see [docs/radio.md](docs/radio.md) |
 | Updates from GitHub | `px30-update` is a stub; updates are pushed from a PC (`tools/px30-ota.sh`) |
-| Wi-Fi setup hotspot | **built, untested on hardware**: without a working Wi-Fi network the panel opens `PX30-xxxx` with a captive portal and a QR flow for the phone ([docs/usage.md](docs/usage.md#wi-fi-setup-hotspot)); until tested, set Wi-Fi at build time or over USB |
+| Wi-Fi setup hotspot | **built, untested on hardware**: without a working Wi-Fi network the panel opens `PX30-xxxx` and a QR flow for the phone ([docs/usage.md](docs/usage.md#wi-fi-setup-hotspot)); until tested, set Wi-Fi at build time or over USB |
 | Fresh install | the full install path from stock Android is described below, but was done step by step on the development panel, not end to end with this exact script set |
 | Other | buttons (adc-keys), the MBI5041 LED driver, the T&H connector and the second UART are not used |
 

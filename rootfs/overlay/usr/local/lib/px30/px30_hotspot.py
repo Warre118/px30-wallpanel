@@ -10,8 +10,11 @@ Flow
      network PX30-xxxx (WPA2, random passphrase). The panel screen shows a
      Wi-Fi QR code (join the hotspot) and a second QR code
      (http://192.168.4.1/setup#PIN) plus the PIN.
-  2. The phone joins; every DNS name resolves to 192.168.4.1, so the phone
-     shows its captive-portal page, which says to scan the second QR code.
+  2. The phone joins. There is NO captive portal: the phones' connectivity
+     checks get the "online" answer, so no sign-in window pops up (it traps
+     the user and cannot follow the panel to the home network). The second QR
+     code opens the setup page in the normal browser; every other address
+     (all DNS names resolve to 192.168.4.1) redirects to it.
   3. On /setup the user picks the home network (list scanned before the AP
      started, or a hidden network typed in) and enters the password.
   4. The panel leaves AP mode and joins that network. Success: px30-panel
@@ -34,6 +37,20 @@ import hashlib, http.server, json, os, re, secrets, socket, struct, subprocess
 import sys, threading, time, urllib.parse
 
 AP_ADDR = "192.168.4.1"
+
+# Connectivity checks of phones and laptops, answered as "online" so the OS
+# does not open a captive-portal window. path -> (status, body)
+_APPLE_OK = "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"
+ONLINE_CHECKS = {
+    "/generate_204": (204, ""),                 # Android, Chrome
+    "/gen_204": (204, ""),
+    "/hotspot-detect.html": (200, _APPLE_OK),   # iOS, macOS
+    "/library/test/success.html": (200, _APPLE_OK),
+    "/connecttest.txt": (200, "Microsoft Connect Test"),  # Windows
+    "/ncsi.txt": (200, "Microsoft NCSI"),
+    "/success.txt": (200, "success\n"),         # Firefox
+    "/check_network_status.txt": (200, "NetworkManager is online\n"),  # GNOME
+}
 IWD_DIR = "/var/lib/iwd"
 AP_DIR = f"{IWD_DIR}/ap"
 IFACE = "wlan0"
@@ -340,7 +357,8 @@ class DNSServer:
 
 
 class PortalHandler(http.server.BaseHTTPRequestHandler):
-    """Port 80. Hotspot: captive portal + phone setup page + API (PIN).
+    """Port 80. Hotspot: phone setup page + API (PIN); connectivity checks
+    answered as online, anything else redirected to /setup.
     After a join: only /ping (the phone page checks <hostname>.local)."""
     server_version = "px30-panel"
     timeout = 20
@@ -384,9 +402,11 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             if u.path == "/api/state":
                 return self.send(200, hs.phone_state())
             return self.send(404, {"error": "not found"})
-        # anything else (captive-portal checks of the phone, any host name)
-        hs.touch()
-        return self.send(200, hs.page("portal.html"), "text/html; charset=utf-8")
+        if u.path in ONLINE_CHECKS:
+            code, body = ONLINE_CHECKS[u.path]
+            return self.send(code, body, "text/plain" if code == 200 and not body.startswith("<") else "text/html")
+        # anything else (any host name resolves here): the setup page
+        return self.send(302, "", "text/plain", extra={"Location": f"http://{AP_ADDR}/setup"})
 
     def do_POST(self):
         hs = self.hs

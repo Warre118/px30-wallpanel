@@ -316,9 +316,14 @@ class StateMachine(unittest.TestCase):
 
     def test_portal_and_pin(self):
         hs, iwd, clock, ev, _ = self.start_ap()
-        st, body = req(hs, "GET", "/generate_204")
+        # no captive portal: connectivity checks say "online"
+        self.assertEqual(req(hs, "GET", "/generate_204")[0], 204)
+        st, body = req(hs, "GET", "/hotspot-detect.html")
         self.assertEqual(st, 200)
-        self.assertIn(b"second QR code", body)
+        self.assertIn(b"Success", body)
+        self.assertEqual(req(hs, "GET", "/connecttest.txt")[1], b"Microsoft Connect Test")
+        # any other address goes to the setup page
+        self.assertEqual(req(hs, "GET", "/some/page")[0], 302)
         st, body = req(hs, "GET", "/setup")
         self.assertEqual(st, 200)
         self.assertIn(b"Connect the panel to your Wi-Fi", body)

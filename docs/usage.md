@@ -70,11 +70,12 @@ one up with your phone:
 1. The panel screen shows **two QR codes**, the network name `PX30-xxxx` and
    its password (new for every session).
 2. Scan the **first** QR code: the phone joins `PX30-xxxx`. That network has
-   no internet. The phone shows a "sign in to network" page that tells you to
-   scan the second code.
+   no internet, but the panel does not act as a captive portal, so no
+   "sign in to network" window pops up.
 3. Scan the **second** QR code (`http://192.168.4.1/setup#PIN`). It opens the
-   Wi-Fi page in your browser. Pick your home network (or type a hidden
-   network's name) and enter its password.
+   Wi-Fi page in your normal browser. Pick your home network (or type a hidden
+   network's name) and enter its password. Any other `http://` address you
+   open while on `PX30-xxxx` also leads to this page.
 4. The panel leaves its own network and joins yours. Your phone falls back to
    your usual network by itself.
    - **It worked:** the page waits until it finds the panel at
@@ -103,16 +104,15 @@ returns to normal Wi-Fi.
 Notes:
 
 - Android: if the browser cannot open `http://192.168.4.1/setup`, turn off
-  mobile data for a moment, or continue on the "sign in" page itself (enter
-  the PIN by hand).
-- iOS: on the "sign in" page, do not tap **Cancel** (iOS may leave the
-  network); scan the second QR code with the camera instead.
+  mobile data for a moment. Android may say "no internet" or "limited
+  connection" for `PX30-xxxx`; that is expected, stay connected.
 - Security: the hotspot uses WPA2 with a random password that is shown only
   on the panel's screen, and the setup page needs the PIN on top of that. Wi-Fi
   names and passwords are never written to the log.
 - How it works: iwd's own access-point mode and DHCP server, a small DNS
   server that answers every name with `192.168.4.1`, and a web server on port
-  80. All of it lives in px30-panel
+  80 that answers the phones' internet checks with "online" (no captive
+  portal window). All of it lives in px30-panel
   (`/usr/local/lib/px30/px30_hotspot.py`), so there are no extra packages or
   services.
 
