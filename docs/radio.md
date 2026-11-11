@@ -116,6 +116,9 @@ main flash and tokens. Check afterwards that the bootloader is still there.
 
 ```
 px30-radio status                         stack, channel, firmware, service
+px30-radio probe                          ask the chip which firmware it runs (~11 s)
+px30-radio use thread|zigbee|off [--flash] [--yes]
+                                          choose the stack (flashes only with --flash)
 px30-radio list                           available firmware (catalog)
 px30-radio switch thread|zigbee [stable|latest] [--yes] [--force]
 px30-radio backup                         Thread: save the active dataset to /data/radio/backup
@@ -136,7 +139,17 @@ px30-radio apply                          (at boot) run only the chosen stack's 
   If it fails, the old stack is restarted and the state is unchanged.
 - **Only one stack runs at a time.** The choice is stored in
   `/data/radio/state.json` and applied at every start. Without a state file
-  nothing is started; run `px30-radio switch` once.
+  (first boot, after a factory reset) nothing is started; choose on the setup
+  page or with `px30-radio use`.
+- **Detecting the chip:** `px30-radio probe` stops both services, asks the chip
+  with `universal-silabs-flasher probe` (Spinel = Thread, EZSP = Zigbee, only
+  the Gecko bootloader = no firmware) and starts them again. Tested on the
+  hardware: about 11 s. The setup page does this by itself when nothing is
+  recorded and preselects the stack it finds.
+- **`use`:** if the chip already runs the chosen stack, only its service is
+  turned on (no flashing, network kept). Another stack needs `--flash`
+  (= `switch`, network lost). `use off` keeps the chip's stack on record but
+  runs neither service; `use <that stack>` turns it on again.
 - **Zigbee bridge:** the bridge exposes the UART on TCP port 6638. ZHA uses
   `socket://<panel-ip>:6638`, Zigbee2MQTT uses `adapter: ember`. It listens on
   `127.0.0.1` only by default. Set `ZIGBEE_LISTEN=0.0.0.0` in

@@ -42,6 +42,12 @@ shows:
      - *password*: set a login password (stored as a SHA-512 crypt hash on `/data`);
      - *no password*: switch password login off again;
      - "Remove the other keys" replaces all keys instead of adding one.
+   - **Radio module:** Thread, Zigbee or Off. After a factory reset the panel
+     asks the chip which firmware it has (about 15 s) and preselects it.
+     Choosing the other stack needs a tick at "Flash the chip": that takes
+     about 2 minutes and erases the network on it ([radio.md](radio.md)).
+   - **Sensors:** turn the proximity sensor or the light sensor off (see
+     "Screen and sensors").
    - **Services:** switch optional services on or off (see below).
 4. Submit. The panel confirms each section and returns to the dashboard.
 
@@ -157,8 +163,9 @@ also from Home Assistant):
 | Audio (`px30-audio`) | keeps the speaker amplifier open to avoid a pop at every sound; about 3–4 % CPU |
 | SSH (`ssh`) | no network login (rescue mode over USB still works) |
 
-The radio stack (Thread border router or Zigbee bridge) is chosen with
-`px30-radio` ([radio.md](radio.md)), and only the chosen one runs.
+The radio stack (Thread border router or Zigbee bridge, or off) is chosen on
+the setup page, in Home Assistant or with `px30-radio` ([radio.md](radio.md)).
+Only the service of the chosen stack runs; with "Off" neither does.
 
 Choices are stored in `/data/px30-panel/services.json` and applied again at
 every start, also after an update.
@@ -168,6 +175,10 @@ every start, also after an update.
 - The screen turns off after a period without presence (default 60 s) and
   turns back on when someone comes close (proximity sensor) or touches it.
 - Brightness can follow the ambient light. Settings are in Home Assistant.
+- Both sensors can be turned off on the setup page or in Home Assistant
+  (*Proximity sensor*, *Light sensor*). Without the proximity sensor only a
+  touch wakes the screen; without the light sensor there is no ambient-light
+  value and the brightness stays fixed.
 - `px30-panel` signals: `sudo px30-panel dashboard` returns to the dashboard
   from setup or menu.
 
