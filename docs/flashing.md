@@ -70,10 +70,10 @@ Use **RKDevTool** (v3.37 tested) on Windows. It must show "LOADER".
 
 ## 3. First install
 
-You need a release directory (see [building.md](building.md)), built with
-`SSH_PUBKEY` (initramfs and rootfs) and preferably with Wi-Fi
-(`WIFI_SSID`/`WIFI_PSK`). A stock panel has no data partition yet, so the
-rescue mode can only use the baked-in key.
+You need a release directory (see [building.md](building.md)), preferably
+built with Wi-Fi (`WIFI_SSID`/`WIFI_PSK`) or set up afterwards with the Wi-Fi
+hotspot. Rescue mode lets `root` in over USB without a password, so no key is
+needed for the install itself.
 
 1. **Write the rescue image to the Android `recovery` partition.** On the stock
    layout `recovery` starts at sector `0x32000` and is 64 MiB. Check

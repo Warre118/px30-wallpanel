@@ -43,9 +43,11 @@ SSH_PUBKEY=~/.ssh/id_ed25519.pub bash initramfs/build-initramfs.sh
 ```
 
 - Boot counter, A/B selection, `/data`, and rescue mode with dropbear. About 5 MB.
-- `SSH_PUBKEY` is optional. It adds a key for `root` in rescue mode. Without it,
-  rescue mode only accepts admin's keys from `/data`, which are set via the setup
-  page. **For a first install you need it**, because there is no `/data` yet.
+- Rescue mode lets `root` in **without a password, over USB only** (dropbear
+  listens on `10.55.0.1`; the initramfs has no Wi-Fi). Whoever has the USB
+  cable can reach loader mode anyway.
+- `SSH_PUBKEY` is optional. It adds a key for `root` in rescue mode, next to
+  admin's keys from `/data`.
 
 ## 3. Root file system
 

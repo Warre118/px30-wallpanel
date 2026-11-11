@@ -69,9 +69,10 @@ menu, or from Home Assistant.
 
 - Runs entirely from the initramfs: busybox, e2fsprogs, sfdisk, zstd and dropbear.
 - USB-NCM gadget on the OTG port: the panel is `10.55.0.1` and serves DHCP. Log in
-  with `ssh root@10.55.0.1`, using a key only. Accepted keys are the ones baked in
-  at build time plus admin's keys from `/data`. The host key is generated per
-  device and kept on `/data`.
+  with `ssh root@10.55.0.1`, **without a password** (USB only: dropbear listens
+  on `10.55.0.1`, and there is no Wi-Fi in rescue mode). Keys work too: the one
+  baked in at build time plus admin's keys from `/data`. The host key is
+  generated per device and kept on `/data`.
 - Status on screen (fbcon).
 - "boot-failed": waits 2 minutes for `px30-rescue hold`, then reinstalls from the
   factory partition (data kept) and reboots, at most twice in a row.

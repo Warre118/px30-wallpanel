@@ -14,8 +14,10 @@ set -euo pipefail
 PROJ="$(cd "$(dirname "$0")/.." && pwd)"
 KOUT="${KERNEL_OUT:-$HOME/px30-build/out}"
 W="${W:-$HOME/px30-build/initramfs}"
-# optional key baked in for root in rescue mode (public images: none; the
-# rescue mode also accepts admin's keys from /data, set via the setup page)
+# Rescue mode logs root in WITHOUT a password, over USB only (dropbear listens
+# on 10.55.0.1, there is no Wi-Fi in the initramfs): whoever holds the USB
+# cable can also enter loader mode with the BOOT button. Keys still work too:
+# the optional one baked in here plus admin's keys from /data.
 PUBKEY="${SSH_PUBKEY:-}"
 mkdir -p "$W"
 KVER="$(ls "$KOUT/lib/modules" | head -1)"
@@ -74,7 +76,8 @@ done
 install -m 755 "$PROJ/initramfs/init" "$S/init"
 install -m 755 "$PROJ/initramfs/bin/px30-rescue" "$S/usr/bin/px30-rescue"
 install -m 644 "$PROJ/initramfs/lib/px30-state.sh" "$S/usr/lib/px30-state.sh"
-printf 'root:x:0:0:root:/root:/bin/sh\n' > "$S/etc/passwd"
+# empty password field: dropbear -B accepts root without a password
+printf 'root::0:0:root:/root:/bin/sh\n' > "$S/etc/passwd"
 printf 'root:x:0:\n' > "$S/etc/group"
 printf '/bin/sh\n' > "$S/etc/shells"
 printf 'start 10.55.0.10\nend 10.55.0.20\ninterface usb0\nlease_file /tmp/udhcpd.leases\noption subnet 255.255.255.0\n' > "$S/etc/udhcpd.conf"

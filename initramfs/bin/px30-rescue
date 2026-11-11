@@ -205,12 +205,13 @@ start_services() {
 	touch /tmp/udhcpd.leases
 	udhcpd -S /etc/udhcpd.conf 2>/dev/null
 	ssh_keys
-	dropbear -s -g -E -p 22 -r "$HOSTKEY" 2>/dev/null
+	# root without a password (-B), on the USB address only
+	dropbear -B -E -p 10.55.0.1:22 -r "$HOSTKEY" 2>/dev/null
 }
 
-# Keys for root in rescue mode: the one baked in at build time (optional) plus
-# admin's keys from /data (set via the setup page), so a public image needs no
-# built-in key. Host key: per device on /data, else generated (tmpfs).
+# Root needs no password over USB (see build-initramfs.sh). Keys are accepted
+# too: the one baked in at build time (optional) plus admin's keys from /data.
+# Host key: per device on /data, else generated (tmpfs).
 ssh_keys() {
 	HOSTKEY=/etc/dropbear/dropbear_ed25519_host_key
 	d=$(px30_part data 2>/dev/null) || d=
@@ -233,7 +234,7 @@ screen() { # title, lines...
 	printf '\033[2J\033[H' > $TTY 2>/dev/null
 	{ echo; echo "  PX30 RESCUE MODE"; echo "  ================"; echo
 	  for l in "$@"; do echo "  $l"; done; echo
-	  echo "  USB cable:  ssh root@10.55.0.1"; } > $TTY 2>/dev/null
+	  echo "  USB cable:  ssh root@10.55.0.1  (no password)"; } > $TTY 2>/dev/null
 }
 
 pid1() {
