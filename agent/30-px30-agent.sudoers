@@ -20,6 +20,9 @@ Cmnd_Alias PX30_AGENT_UPD = /usr/local/sbin/px30-update system latest, \
 Cmnd_Alias PX30_AGENT_RADIO = /usr/local/sbin/px30-radio switch thread stable --yes, \
 	/usr/local/sbin/px30-radio switch thread latest --yes, \
 	/usr/local/sbin/px30-radio switch zigbee stable --yes, \
-	/usr/local/sbin/px30-radio switch zigbee latest --yes
+	/usr/local/sbin/px30-radio switch zigbee latest --yes, \
+	/usr/local/sbin/px30-radio use off, \
+	/usr/local/sbin/px30-radio use thread, \
+	/usr/local/sbin/px30-radio use zigbee
 Defaults:px30-agent !lecture, !syslog
 px30-agent ALL=(root) NOPASSWD: PX30_AGENT_CTL, PX30_AGENT_SYS, PX30_AGENT_UPD, PX30_AGENT_RADIO

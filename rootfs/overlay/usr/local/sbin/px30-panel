@@ -467,6 +467,10 @@ class Setup:
         res = {"msgs": []}
         if isinstance(d.get("services"), dict):
             res["msgs"] += services_apply(d["services"])
+        if isinstance(d.get("sensors"), dict):
+            res["msgs"] += sensors_apply(d["sensors"])
+        if isinstance(d.get("radio"), dict):
+            res["msgs"].append(radio_apply(d["radio"]))
         ssh = d.get("ssh") or {}
         if ssh.get("mode") in ("password", "genkey", "pubkey", "nopassword"):
             msg, priv = ssh_apply(ssh)
@@ -653,6 +657,104 @@ SERVICES = {
     "ssh": {"units": ["ssh.service"], "label": "SSH server"},
 }
 SERVICES_FILE = f"{DATA}/services.json"
+
+# ------------------------------------------------------------------ radio module
+RADIO = "/usr/local/sbin/px30-radio"
+RADIO_PROBE = {"busy": False}
+
+
+def radio_state():
+    """What the setup page shows: the recorded choice, or (nothing recorded,
+    e.g. after a factory reset) what the chip runs according to a probe."""
+    rc, out = sh(RADIO, "status", "--json", timeout=20)
+    try:
+        s = json.loads(out.splitlines()[-1])
+    except (ValueError, IndexError):
+        return {"error": "px30-radio status failed", "probing": RADIO_PROBE["busy"]}
+    p = s.get("probe") or {}
+    chosen = not s.get("guessed")
+    return {"chosen": chosen,
+            "enabled": bool(s.get("enabled", True)) if chosen else None,
+            "stack": s.get("stack") if chosen else None,
+            "chip": s.get("stack") if chosen else (p.get("stack") or "unknown"),
+            "chip_version": p.get("chip_version") or s.get("chip_version") or s.get("version"),
+            "probed": bool(p) or chosen,
+            "probing": RADIO_PROBE["busy"]}
+
+
+def radio_probe_start():
+    """Ask the chip in the background (~11 s; stops Thread/Zigbee meanwhile)."""
+    with LOCK:
+        if RADIO_PROBE["busy"]:
+            return
+        RADIO_PROBE["busy"] = True
+
+    def run():
+        try:
+            sh(RADIO, "probe", timeout=150)
+        finally:
+            RADIO_PROBE["busy"] = False
+    threading.Thread(target=run, daemon=True).start()
+
+
+def radio_apply(r):
+    st = r.get("stack")
+    if st not in ("thread", "zigbee", "off"):
+        return None
+    if st == "off":
+        rc, out = sh(RADIO, "use", "off", timeout=60)
+        return "Radio module: off" if rc == 0 else "Radio module ERROR: " + (out.splitlines() or [""])[-1]
+    cur = radio_state()
+    if cur.get("chip") in ("thread", "zigbee", "bootloader") and cur["chip"] != st:
+        if not r.get("flash"):
+            return "Radio module: not changed (flashing was not confirmed)"
+        threading.Thread(target=lambda: sh(RADIO, "use", st, "--flash", "--yes", timeout=900),
+                         daemon=True).start()
+        return f"Radio module: flashing {st} in the background (about 2 minutes)"
+    rc, out = sh(RADIO, "use", st, timeout=150)
+    if rc == 0:
+        return f"Radio module: {st} on"
+    return "Radio module ERROR: " + (out.splitlines() or [""])[-1]
+
+
+# ------------------------------------------------------------------ sensors
+DISPLAY_JSON = "/data/px30-agent/display.json"   # px30-agent / HA write it too
+SENSORS = ("proximity", "light_sensor")
+
+
+def sensors_state():
+    try:
+        d = json.load(open(DISPLAY_JSON))
+    except (OSError, ValueError):
+        d = {}
+    return {k: d.get(k) is not False for k in SENSORS}
+
+
+def sensors_apply(s):
+    try:
+        d = json.load(open(DISPLAY_JSON))
+    except (OSError, ValueError):
+        d = {}
+    msgs = []
+    for k, label in (("proximity", "Proximity sensor"), ("light_sensor", "Light sensor")):
+        if isinstance(s.get(k), bool) and (d.get(k) is not False) != s[k]:
+            d[k] = s[k]
+            msgs.append(f"{label}: {'on' if s[k] else 'off'}")
+    if not msgs:
+        return []
+    os.makedirs(os.path.dirname(DISPLAY_JSON), exist_ok=True)
+    tmp = DISPLAY_JSON + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=1)
+    os.chmod(tmp, 0o644)
+    try:                                   # px30-agent must keep writing it
+        import shutil
+        shutil.chown(tmp, "px30-agent", "px30-agent")
+    except (LookupError, OSError):
+        pass
+    os.replace(tmp, DISPLAY_JSON)
+    sh("systemctl", "kill", "-s", "HUP", "proximity-wake.service")
+    return msgs
 
 
 def services_load():
@@ -851,11 +953,20 @@ class SetupHandler(Base):
                 mq = json.load(open("/data/px30-agent/config.json")).get("mqtt", {})
             except (OSError, ValueError):
                 pass
+            radio = radio_state()
+            if not radio.get("probed") and not radio.get("error"):
+                radio_probe_start()
+                radio["probing"] = True
             return self.send(200, {"configured": configured(), "dashboard": kiosk_url(),
+                                   "radio": radio, "sensors": sensors_state(),
                                    "mqtt_host": mq.get("host", ""), "mqtt_port": mq.get("port", ""),
                                    "mqtt_user": mq.get("username", ""), "mqtt_tls": bool(mq.get("tls")),
                                    "mqtt_has_password": bool(mq.get("password")),
                                    "ssh": ssh_state(), "services": services_state()})
+        if self.path.startswith("/api/radio"):
+            if not SETUP.check_pin(self.headers.get("X-Pin")):
+                return self.send(403, {"error": "wrong PIN or setup expired"})
+            return self.send(200, radio_state())
         self.send(404, {"error": "not found"})
 
     def do_POST(self):

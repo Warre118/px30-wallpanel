@@ -92,6 +92,8 @@ DEFAULT_CONFIG = {
 }
 
 DEFAULT_DISPLAY = {
+    "proximity": True,        # proximity sensor used (False: only touch wakes the screen)
+    "light_sensor": True,     # light sensor used (False: no lux, no auto-brightness)
     "brightness": 80,         # % of max_brightness; manual level, or maximum when auto
     "auto_brightness": False,
     "brightness_min": 10,     # % lower bound for auto-brightness
@@ -116,6 +118,7 @@ NUMBERS = {
 }
 
 MODULE_STACKS = ("thread", "zigbee")
+MODULE_OPTIONS = MODULE_STACKS + ("off",)     # off: radio unused, no service
 MODULE_CHANNELS = ("stable", "latest")
 
 # The ONLY commands this agent can run with privileges. Keys are internal
@@ -144,9 +147,12 @@ COMMANDS = {
     "display_sleep":   [SYSTEMCTL, "kill", "-s", "USR2", "proximity-wake.service"],
     "fw_install":      [UPDATE, "system", "latest"],
     # radio module: stack + channel; px30-radio shows the warnings, the agent
-    # only runs it while "Gevaarlijke acties ontgrendelen" is on
+    # only runs it while "Unlock dangerous actions" is on
     **{f"radio_{st}_{ch}": [RADIO, "switch", st, ch, "--yes"]
        for st in MODULE_STACKS for ch in MODULE_CHANNELS},
+    # without flashing: radio off, or back on with the stack the chip has
+    "radio_use_off":    [RADIO, "use", "off"],
+    **{f"radio_use_{st}": [RADIO, "use", st] for st in MODULE_STACKS},
     "rcp_version":     ["/usr/sbin/ot-ctl", "rcp", "version"],
 }
 # read-only, run without sudo
@@ -329,10 +335,11 @@ class Agent:
                 self.rcp_version = lines[0].strip()[:100] if lines else None
 
     def module_info(self):
+        """(stack on the chip, version, radio enabled)"""
         m = read_json(MODULE_PATH, {}) or {}
         stack = m.get("stack") if m.get("stack") in MODULE_STACKS else "thread"
         version = m.get("version") or self.rcp_version
-        return stack, version
+        return stack, version, m.get("enabled") is not False
 
     def module_channel(self):
         ch = self.settings.get("module_channel")
@@ -397,9 +404,14 @@ class Agent:
         presence = None
         if isinstance(live, dict) and isinstance(live.get("near"), bool):
             presence = "ON" if live["near"] else "OFF"
-        stack, mod_ver = self.module_info()
-        lux = self.iio("in_illuminance")
-        prox = self.iio("in_proximity")
+        stack, mod_ver, mod_on = self.module_info()
+        with self.lock:              # the setup page may have changed the file
+            self.display = deep_merge(DEFAULT_DISPLAY, read_json(DISPLAY_PATH, {}))
+            prox_on, light_on = self.display["proximity"], self.display["light_sensor"]
+        lux = self.iio("in_illuminance") if light_on else None
+        prox = self.iio("in_proximity") if prox_on else None
+        if not prox_on:
+            presence = None
         s = {
             "ip": self.ip_address(c["wifi_interface"]),
             "wifi_rssi": self.wifi_rssi(c["wifi_interface"]),
@@ -414,10 +426,10 @@ class Agent:
             "os_version": rel.get("VERSION") or "dev",
             "kernel": os.uname().release if hasattr(os, "uname") else None,
             "agent_version": AGENT_VERSION,
-            "module_stack": stack,
+            "module_stack": stack if mod_on else "off",
             "module_version": mod_ver,
             "module_channel": self.module_channel(),
-            "thread_state": self.thread_state() if stack == "thread" else None,
+            "thread_state": self.thread_state() if stack == "thread" and mod_on else None,
             "illuminance": round(lux, 1) if lux is not None else None,
             "proximity": round(prox) if prox is not None else None,
             "presence": presence,
@@ -432,6 +444,8 @@ class Agent:
             for k in NUMBERS:
                 s[k] = self.display[k]
             s["auto_brightness"] = "ON" if self.display["auto_brightness"] else "OFF"
+            s["proximity_on"] = "ON" if self.display["proximity"] else "OFF"
+            s["light_on"] = "ON" if self.display["light_sensor"] else "OFF"
         return s
 
     # ------------------------------------------------------- discovery
@@ -489,6 +503,12 @@ class Agent:
         add("switch", "auto_brightness", name="Automatic brightness",
             command_topic=cmd("auto_brightness"), state_topic=st,
             value_template="{{ value_json.auto_brightness }}", icon="mdi:brightness-auto")
+        add("switch", "proximity_sensor", name="Proximity sensor", command_topic=cmd("proximity_sensor"),
+            state_topic=st, value_template="{{ value_json.proximity_on }}",
+            icon="mdi:motion-sensor", entity_category="config")
+        add("switch", "light_sensor", name="Light sensor", command_topic=cmd("light_sensor"),
+            state_topic=st, value_template="{{ value_json.light_on }}",
+            icon="mdi:brightness-auto", entity_category="config")
         add("switch", "screen", name="Screen", command_topic=cmd("screen"), state_topic=st,
             value_template="{{ value_json.screen }}", icon="mdi:monitor")
         # numbers
@@ -508,7 +528,7 @@ class Agent:
         add("select", "module_stack", name="Radio module (switching erases the network!)",
             command_topic=cmd("module_stack"),
             state_topic=st, value_template="{{ value_json.module_stack }}",
-            options=list(MODULE_STACKS), icon="mdi:zigbee", entity_category="config")
+            options=list(MODULE_OPTIONS), icon="mdi:zigbee", entity_category="config")
         add("select", "module_channel", name="Radio module channel (stable/latest)",
             command_topic=cmd("module_channel"),
             state_topic=st, value_template="{{ value_json.module_channel }}",
@@ -569,7 +589,7 @@ class Agent:
     def update_payloads(self):
         rel = read_kv_file(RELEASE_FILE)
         fw_inst = rel.get("VERSION") or "dev"
-        stack, mod_inst = self.module_info()
+        stack, mod_inst, _ = self.module_info()
         mod_inst = mod_inst or "onbekend"
 
         def payload(installed, latest, busy, title):
@@ -604,7 +624,7 @@ class Agent:
         except (OSError, ValueError, urllib.error.URLError) as e:
             self.set_last(f"update check failed: {e}")
             return
-        stack, _ = self.module_info()
+        stack, _, mod_on = self.module_info()
         fw_p, mod_p = u["firmware_tag_prefix"], u["module_tag_prefix"]
         fw = mod = None
         for rel in releases if isinstance(releases, list) else []:
@@ -691,6 +711,18 @@ class Agent:
             if p not in ("ON", "OFF"):
                 return None
             return lambda: (self.set_screen(p == "ON"), time.sleep(0.3), self.publish_state())
+        if name in ("proximity_sensor", "light_sensor"):
+            if p not in ("ON", "OFF"):
+                return None
+            key = "proximity" if name == "proximity_sensor" else "light_sensor"
+            def do_sensor():
+                with self.lock:
+                    self.display = deep_merge(DEFAULT_DISPLAY, read_json(DISPLAY_PATH, {}))
+                    self.display[key] = p == "ON"
+                self.save_display()
+                self.set_last(f"{name} {p}")
+                self.publish_state()
+            return do_sensor
         if name == "auto_brightness":
             if p not in ("ON", "OFF"):
                 return None
@@ -724,9 +756,16 @@ class Agent:
                 self.publish_state()
             return do_num
         if name == "module_stack":
-            if p not in MODULE_STACKS:
+            if p not in MODULE_OPTIONS:
                 return None
-            stack, _ = self.module_info()
+            stack, _, mod_on = self.module_info()
+            if p == "off" or (p == stack and not mod_on):
+                # no flashing: radio off, or back on with the stack on the chip
+                def do_use():
+                    rc, _ = self.run_priv(f"radio_use_{p}", timeout=180)
+                    self.set_last(f"radio {p}: " + ("ok" if rc == 0 else f"error {rc}"))
+                    self.publish_state()
+                return do_use
             if p == stack:
                 return self.publish_state
             if not self.armed:

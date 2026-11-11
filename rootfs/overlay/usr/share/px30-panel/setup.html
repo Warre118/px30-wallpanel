@@ -109,6 +109,30 @@
       <div id="ssh_replace" class="chk hide"><input id="replace" type="checkbox"><label for="replace">Remove the other keys</label></div>
     </div>
 
+    <!-- radio module -->
+    <div class="card">
+      <div class="head"><h2>Radio module</h2><span class="state" id="radio_state"></span></div>
+      <p class="mut">The built-in Zigbee/Thread chip. Thread: Thread border router for Home Assistant
+        (Matter over Thread). Zigbee: coordinator for ZHA or Zigbee2MQTT. Off: the chip is not used.</p>
+      <div class="radio">
+        <label><input type="radio" name="radio" value="thread"> Thread</label>
+        <label><input type="radio" name="radio" value="zigbee"> Zigbee</label>
+        <label><input type="radio" name="radio" value="off"> Off</label>
+      </div>
+      <p class="mut" id="radio_hint"></p>
+      <div id="radio_flash" class="chk hide"><input id="radio_flashok" type="checkbox"><label for="radio_flashok">
+        Flash the chip with this firmware. Takes about 2 minutes and <b>erases the network</b> on it:
+        every device must be paired again.</label></div>
+    </div>
+
+    <!-- sensors -->
+    <div class="card">
+      <h2>Sensors</h2>
+      <div class="chk"><input id="sens_prox" type="checkbox"><label for="sens_prox">Proximity sensor: the screen turns on when someone comes near</label></div>
+      <div class="chk"><input id="sens_light" type="checkbox"><label for="sens_light">Light sensor: ambient light in Home Assistant and automatic brightness</label></div>
+      <p class="mut">Off: the screen only turns on when touched, at a fixed brightness.</p>
+    </div>
+
     <!-- services -->
     <div class="card">
       <h2>Services</h2>
@@ -185,8 +209,39 @@ function fill(d) {
     row.querySelector("input").checked = v.on; row.querySelector("input").dataset.k = k; row.querySelector("input").dataset.was = v.on;
     box.appendChild(row);
   }
+  const se = d.sensors || {};
+  $("#sens_prox").checked = se.proximity !== false; $("#sens_light").checked = se.light_sensor !== false;
+  radioFill(d.radio || {}, true);
   show($("#pinbox"), false); show($("#sections"), true);
 }
+
+// radio module: the recorded choice, or what the chip runs (detected after a reset)
+let R = {}, radioWas = "";
+const RNAME = { thread:"Thread", zigbee:"Zigbee", bootloader:"no firmware (bootloader only)", unknown:"unknown" };
+function radioSel() { const r = document.querySelector("input[name=radio]:checked"); return r ? r.value : ""; }
+function radioFill(r, first) {
+  R = r;
+  let pre = "";
+  if (r.chosen) pre = r.enabled === false ? "off" : r.stack;
+  else if (r.chip === "thread" || r.chip === "zigbee") pre = r.chip;
+  if (first || !radioSel()) {
+    document.querySelectorAll("input[name=radio]").forEach(i => i.checked = i.value === pre);
+    radioWas = pre;
+  }
+  const chip = RNAME[r.chip] || r.chip || "?";
+  $("#radio_state").textContent = r.chosen ? (r.enabled === false ? "off" : (RNAME[r.stack] || r.stack)) : "not chosen";
+  $("#radio_hint").textContent = r.error ? r.error
+    : r.probing ? "Detecting the firmware on the chip... (about 15 s)"
+    : `Chip runs: ${chip}${r.chip_version ? " (" + r.chip_version + ")" : ""}.`;
+  radioFlashHint();
+  if (r.probing) setTimeout(async () => { try { radioFill(await call("/api/radio"), false); } catch (e) {} }, 3000);
+}
+function radioNeedsFlash() {
+  const s = radioSel();
+  return (s === "thread" || s === "zigbee") && ["thread", "zigbee", "bootloader"].includes(R.chip) && R.chip !== s;
+}
+function radioFlashHint() { show($("#radio_flash"), radioNeedsFlash()); }
+document.querySelectorAll("input[name=radio]").forEach(i => i.onchange = radioFlashHint);
 
 async function load() {
   try { fill(await call("/api/defaults")); }
@@ -243,6 +298,15 @@ $("#f1").onsubmit = async ev => {
   const svc = {};
   document.querySelectorAll("#services input").forEach(i => { if (String(i.checked) !== i.dataset.was) svc[i.dataset.k] = i.checked; });
   if (Object.keys(svc).length) b.services = svc;
+  const se = D.sensors || {};
+  if ($("#sens_prox").checked !== (se.proximity !== false) || $("#sens_light").checked !== (se.light_sensor !== false))
+    b.sensors = { proximity: $("#sens_prox").checked, light_sensor: $("#sens_light").checked };
+  const rs = radioSel();
+  if (rs && (rs !== radioWas || !R.chosen)) {
+    if (radioNeedsFlash() && !$("#radio_flashok").checked)
+      return msg($("#m1"), "Radio module: tick 'Flash the chip' to switch the firmware, or keep the current choice.", true);
+    b.radio = { stack: rs, flash: radioNeedsFlash() };
+  }
   if (b.relogin && (!b.username || !b.password)) return msg($("#m1"), "Fill in the Home Assistant username and password, or untick 'log in again'.", true);
   $("#go").disabled = true; msg($("#m1"), "Saving...");
   try {

@@ -19,6 +19,8 @@ SETTINGS = "/data/px30-agent/display.json"
 STATE = "/run/px30-display/state.json"
 TOUCH_NAME = "hynitron"      # part of the touch input device name ("Hynitron cst3xx Touchscreen")
 DEFAULTS = {
+    "proximity": True,        # False: the proximity sensor is ignored, only touch wakes
+    "light_sensor": True,     # False: no light readings, no automatic brightness
     "brightness": 80,         # % of max_brightness (auto: the maximum)
     "auto_brightness": False,
     "brightness_min": 10,     # % lower bound in auto mode
@@ -121,7 +123,7 @@ class Wake:
 
     def target_pct(self):
         c = self.cfg
-        if not c["auto_brightness"] or self.lux_ema is None:
+        if not c["auto_brightness"] or not c["light_sensor"] or self.lux_ema is None:
             return c["brightness"]
         x = (math.log10(max(self.lux_ema, LUX_LO)) - math.log10(LUX_LO)) / (math.log10(LUX_HI) - math.log10(LUX_LO))
         x = min(1.0, max(0.0, x))
@@ -178,6 +180,8 @@ class Wake:
             if self.reload:
                 self.reload = False
                 self.cfg = load_settings()
+                if not self.cfg["light_sensor"]:
+                    self.lux_ema = None
                 if screen_on:
                     self.set_pct(self.target_pct())
             if r:
@@ -188,16 +192,19 @@ class Wake:
                     pass
                 last_presence = now
 
-            value = read_num(prox_path, int, baseline)
-            if not near and value > baseline + self.cfg["near_delta"]:
-                near = True
-            elif near and value < baseline + self.cfg["far_delta"]:
+            if self.cfg["proximity"]:
+                value = read_num(prox_path, int, baseline)
+                if not near and value > baseline + self.cfg["near_delta"]:
+                    near = True
+                elif near and value < baseline + self.cfg["far_delta"]:
+                    near = False
+                if not near:
+                    # let the baseline drift slowly (temperature, dust on the glass)
+                    baseline = (baseline * 31 + value) // 32
+                if near:
+                    last_presence = now
+            else:
                 near = False
-            if not near:
-                # let the baseline drift slowly (temperature, dust on the glass)
-                baseline = (baseline * 31 + value) // 32
-            if near:
-                last_presence = now
 
             if self.force == "on":
                 last_presence = now
@@ -207,7 +214,7 @@ class Wake:
 
             # light: measure every second, EMA ~5 s
             lux = None
-            if now - lux_t >= 1.0:
+            if self.cfg["light_sensor"] and now - lux_t >= 1.0:
                 lux_t = now
                 lux = self.lux()
                 if lux is not None:
@@ -218,7 +225,7 @@ class Wake:
                 screen_on = want_on
                 self.cur_pct = None if want_on else self.cur_pct
                 self.set_pct(self.target_pct() if want_on else 0)
-            elif screen_on and self.cfg["auto_brightness"]:
+            elif screen_on and self.cfg["auto_brightness"] and self.cfg["light_sensor"]:
                 t = self.target_pct()
                 if self.cur_pct is None or abs(t - self.cur_pct) >= 5:
                     self.set_pct(t)

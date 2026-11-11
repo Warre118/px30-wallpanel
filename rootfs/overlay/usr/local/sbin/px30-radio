@@ -2,6 +2,13 @@
 """px30-radio - choose the stack and firmware of the radio module (Tuya TYZS13).
 
   px30-radio status [--json]            current stack / version / services
+  px30-radio probe [--json]             ask the chip which firmware it runs (~11 s;
+                                        both services are stopped meanwhile)
+  px30-radio use thread|zigbee|off [--flash] [--yes]
+                                        choose the stack. thread/zigbee: if the chip
+                                        already runs it, only its service is turned on;
+                                        otherwise --flash is needed (= switch, network
+                                        lost). off: radio unused, both services off
   px30-radio list [--json]              available firmware (catalog)
   px30-radio switch STACK [CHANNEL] [--yes] [--force]
         STACK   thread | zigbee
@@ -29,11 +36,12 @@ Exit codes: 0 ok, 1 error, 2 refused (not confirmed / already installed), 3 busy
 Files: /usr/share/px30-radio/catalog.json (+ firmware/), /data/radio/catalog.json
 (downloaded, takes precedence), /data/radio/state.json, /data/radio/radio.conf.
 """
-import fcntl, hashlib, json, os, subprocess, sys, time
+import fcntl, hashlib, json, os, re, subprocess, sys, time
 
 SHARE = "/usr/share/px30-radio"
 DATA = "/data/radio"
 STATE = DATA + "/state.json"
+PROBE = DATA + "/probe.json"
 CONF = DATA + "/radio.conf"
 LOCK = "/run/px30-radio.lock"
 USF = "/opt/usf/bin/universal-silabs-flasher"
@@ -41,6 +49,9 @@ DEVICE = "/dev/ttyThread"
 STACKS = ("thread", "zigbee")
 CHANNELS = ("stable", "latest")
 SERVICE = {"thread": "otbr-agent.service", "zigbee": "px30-zigbee-bridge.service"}
+# application type reported by universal-silabs-flasher -> stack
+APP_STACK = {"SPINEL": "thread", "EZSP": "zigbee", "GECKO_BOOTLOADER": "bootloader",
+             "CPC": "cpc", "ROUTER": "router"}
 
 WARN_STACK = """
   !!! WARNING: STACK SWITCH {old} -> {new} !!!
@@ -115,6 +126,98 @@ def state():
     return s
 
 
+def lock(wait=False):
+    """The radio lock (flash, probe); None if another operation holds it."""
+    lk = open(LOCK, "w")
+    try:
+        fcntl.flock(lk, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+    except OSError:
+        lk.close()
+        return None
+    return lk
+
+
+def probe():
+    """Ask the chip which firmware it runs. Both services are stopped meanwhile
+    (they hold the UART) and the ones that ran are started again. Result in
+    /data/radio/probe.json: {stack, app, chip_version, time}; stack is
+    thread / zigbee / bootloader (no application) / unknown."""
+    res = {"stack": "unknown", "app": None, "chip_version": None,
+           "time": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+    if not os.access(USF, os.X_OK):
+        res["error"] = "universal-silabs-flasher missing"
+        return res
+    lk = lock()
+    if not lk:
+        res["error"] = "busy"
+        return res
+    try:
+        guess = state()["stack"]
+        order = ("spinel", "ezsp") if guess == "thread" else ("ezsp", "spinel")
+        methods = ",".join(f"{m}:115200" for m in order) + ",bootloader:115200"
+        was = [u for u in SERVICE.values() if active(u)]
+        for u in SERVICE.values():
+            subprocess.run(["systemctl", "stop", u], check=False)
+        try:
+            r = subprocess.run([USF, "--device", DEVICE, "--probe-methods", methods, "probe"],
+                               capture_output=True, text=True, timeout=120)
+            m = re.search(r"Detected ApplicationType\.(\w+), version '([^']*)'", r.stdout + r.stderr)
+            if m:
+                res.update(stack=APP_STACK.get(m.group(1), "unknown"), app=m.group(1),
+                           chip_version=m.group(2))
+        except subprocess.TimeoutExpired:
+            res["error"] = "timeout"
+        finally:
+            for u in was:
+                subprocess.run(["systemctl", "start", u], check=False)
+    finally:
+        lk.close()
+    save(PROBE, res)
+    return res
+
+
+def cmd_probe(js):
+    res = probe()
+    if js:
+        print(json.dumps(res))
+    else:
+        print(f'chip: {res["stack"]}' + (f' ({res["chip_version"]})' if res.get("chip_version") else "")
+              + (f' - {res["error"]}' if res.get("error") else ""))
+
+
+def cmd_use(target, flash, yes):
+    s = load(STATE, {})
+    known = s.get("stack") if s.get("stack") in STACKS else None
+    if target == "off":
+        if not known:
+            s.update(stack=state()["stack"], guessed=True)
+        s["enabled"] = False
+        save(STATE, s)
+        cmd_apply()
+        return
+    if target not in STACKS:
+        die(f"use: thread, zigbee or off")
+    chip = known
+    if not chip:
+        # nothing recorded (first boot, after a factory reset): ask the chip
+        p = probe()
+        chip = p["stack"] if p["stack"] in STACKS else None
+        if chip:
+            s.update(stack=chip, chip_version=p.get("chip_version"))
+            s.pop("guessed", None)
+            save(STATE, s)
+    if chip == target:
+        s.update(stack=target, enabled=True)
+        s.pop("guessed", None)
+        save(STATE, s)
+        cmd_apply()
+        return
+    if not flash:
+        die(f"the module runs {chip or 'unknown firmware'}; {target} needs flashing, which "
+            f"erases the network on it: px30-radio use {target} --flash", 2)
+    cmd_switch(target, s.get("channel") or "stable", yes, False)
+
+
 def active(unit):
     return subprocess.run(["systemctl", "is-active", "--quiet", unit]).returncode == 0
 
@@ -136,12 +239,15 @@ def vkey(v):
 
 def cmd_status(js):
     s = state()
+    s["enabled"] = s.get("enabled", True)
+    s["probe"] = load(PROBE, None)
     s["services"] = {u: active(u) for u in SERVICE.values()}
     s["zigbee_listen"] = conf()["ZIGBEE_LISTEN"]
     if js:
         print(json.dumps(s))
         return
-    print(f'stack:   {s["stack"]}{" (guessed)" if s.get("guessed") else ""}')
+    print(f'stack:   {s["stack"]}{" (guessed)" if s.get("guessed") else ""}'
+          f'{"" if s["enabled"] else "  - radio OFF (px30-radio use ...)"}')
     print(f'version: {s.get("version") or "unknown"}  channel: {s.get("channel") or "-"}')
     print(f'flashed: {s.get("flashed") or "-"}')
     for u, a in s["services"].items():
@@ -198,11 +304,18 @@ def set_services(stack):
 
 
 def cmd_apply():
-    """Only the service of the chosen stack; nothing chosen yet -> leave as is."""
+    """Only the service of the chosen stack (none when the radio is off);
+    nothing chosen yet -> leave as is."""
     s = load(STATE, {})
     stack = s.get("stack")
     if stack not in SERVICE:
-        print("no stack chosen (px30-radio switch ...); nothing changed")
+        print("no stack chosen (px30-radio use ...); nothing changed")
+        return
+    if s.get("enabled") is False:
+        for unit in SERVICE.values():
+            if subprocess.run(["systemctl", "is-enabled", "--quiet", unit]).returncode == 0 or active(unit):
+                subprocess.run(["systemctl", "disable", "--now", unit], check=False)
+        print("radio off: both services off")
         return
     on, off = SERVICE[stack], SERVICE["zigbee" if stack == "thread" else "thread"]
     for unit, want in ((off, False), (on, True)):
@@ -242,10 +355,8 @@ def cmd_switch(stack, channel, yes, force):
     if not yes:
         confirm(word)
 
-    lk = open(LOCK, "w")
-    try:
-        fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+    lk = lock()
+    if not lk:
         die("another radio operation is running", 3)
 
     if old_stack == "thread":
@@ -271,7 +382,7 @@ def cmd_switch(stack, channel, yes, force):
         die(f"flashing failed (rc {rc}); {old_stack} restarted. "
             "If the module no longer answers: recover it over SWD, see docs/radio.md.")
 
-    save(STATE, {"stack": stack, "channel": channel, "version": new_ver,
+    save(STATE, {"stack": stack, "enabled": True, "channel": channel, "version": new_ver,
                  "file": os.path.basename(e["path"]), "sha256": e.get("sha256"),
                  "flashed": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                  "previous": {"stack": old_stack, "version": old_ver}})
@@ -296,6 +407,10 @@ def main(a):
         cmd_list(js)
     elif a[0] == "apply":
         cmd_apply()
+    elif a[0] == "probe":
+        cmd_probe(js)
+    elif a[0] == "use" and len(a) >= 2:
+        cmd_use(a[1], "--flash" in a, "--yes" in a)
     elif a[0] == "backup":
         thread_backup() or sys.exit(1)
     elif a[0] == "switch" and len(a) >= 2:
