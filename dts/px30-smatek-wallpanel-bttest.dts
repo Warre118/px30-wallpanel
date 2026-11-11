@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
- * TESTVARIANT, niet voor productie: Bluetooth via de vendortool rtk_hciattach.
+ * TEST VARIANT, not for production: Bluetooth via the vendor tool rtk_hciattach.
  *
- * Verschillen met px30-smatek-wallpanel.dts:
- *  - de bluetooth-subnode onder uart1 is weg, zodat hci_h5/btrtl niet binden
- *    en uart1 als gewone tty beschikbaar is (/dev/ttyS1 via alias serial1);
- *  - BT-enable (GPIO0_C1) hangt aan rfkill-gpio: "rfkill block/unblock
- *    bluetooth" reset de chip tussen twee pogingen;
- *  - BT-wake (GPIO0_A1) staat via een gpio-hog vast hoog.
+ * Differences from px30-smatek-wallpanel.dts:
+ *  - the bluetooth subnode under uart1 is gone, so hci_h5/btrtl do not bind
+ *    and uart1 is available as a plain tty (/dev/ttyS1 via alias serial1);
+ *  - BT-enable (GPIO0_C1) is driven by rfkill-gpio: "rfkill block/unblock
+ *    bluetooth" resets the chip between two attempts;
+ *  - BT-wake (GPIO0_A1) is held high by a gpio-hog.
  */
 #include "px30-smatek-wallpanel.dts"
 

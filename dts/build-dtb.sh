@@ -1,6 +1,6 @@
 #!/bin/sh
-# Compileert de panel-DTS tegen een (sparse) mainline-Linux-checkout.
-# Gebruik (in WSL/Linux): sh dts/build-dtb.sh <pad-naar-linux> [dtc]
+# Compiles the panel DTS against a (sparse) mainline Linux checkout.
+# Usage (in WSL/Linux): sh dts/build-dtb.sh <path-to-linux> [dtc]
 set -e
 L="$1"; DTC="${2:-dtc}"; D="$(dirname "$0")"
 cpp -nostdinc -undef -x assembler-with-cpp -D__DTS__ \

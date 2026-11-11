@@ -1,15 +1,15 @@
 /*
- * ezsp-probe – leest identificatie uit een Silicon Labs EZSP-NCP (Zigbee-module).
+ * ezsp-probe - reads identification from a Silicon Labs EZSP NCP (Zigbee module).
  *
- * Doet enkel LEES-commando's:
- *   ASH RST (herstart de Zigbee-chip, zoals bij elke coordinator-start)
- *   EZSP version, getValue(VERSION_INFO), getEui64, getMfgToken (diverse),
+ * Only sends READ commands:
+ *   ASH RST (restarts the Zigbee chip, as on every coordinator start)
+ *   EZSP version, getValue(VERSION_INFO), getEui64, getMfgToken (various),
  *   getStandaloneBootloaderVersionPlatMicroPhy, getXncpInfo, networkState
- * Wijzigt geen firmware, geen tokens, geen netwerk; schrijft niets naar opslag.
- * Start de bootloader NIET.
+ * Changes no firmware, no tokens, no network; writes nothing to storage.
+ * Does NOT start the bootloader.
  *
- * Bouwen:  aarch64-linux-gnu-gcc -static -O2 -Wall -o ezsp-probe ezsp-probe.c
- * Gebruik: ezsp-probe [/dev/ttyS5] [115200] [rtscts|none]
+ * Build:   aarch64-linux-gnu-gcc -static -O2 -Wall -o ezsp-probe ezsp-probe.c
+ * Usage:   ezsp-probe [/dev/ttyS5] [115200] [rtscts|none]
  */
 #include <fcntl.h>
 #include <stdint.h>
@@ -21,12 +21,12 @@
 #include <unistd.h>
 
 static int fd;
-static uint8_t ash_tx;      /* volgende frmNum die wij sturen */
-static uint8_t ash_ack;     /* volgende frmNum die we van de NCP verwachten */
+static uint8_t ash_tx;      /* next frmNum we send */
+static uint8_t ash_ack;     /* next frmNum we expect from the NCP */
 static uint8_t ezsp_seq;
-static int ezsp_ver = 4;    /* >= 8: uitgebreid frameformaat */
+static int ezsp_ver = 4;    /* >= 8: extended frame format */
 
-/* ------------------------------------------------------------- ASH-laag */
+/* ------------------------------------------------------------- ASH layer */
 
 static uint16_t crc_ccitt(const uint8_t *p, size_t n)
 {
@@ -109,7 +109,7 @@ static void ash_send_data(const uint8_t *payload, size_t n)
 	ash_tx = (ash_tx + 1) & 7;
 }
 
-/* wacht op een DATA-frame; ACKt het; geeft gederandomiseerde payload */
+/* waits for a DATA frame; ACKs it; returns the de-randomised payload */
 static int ash_recv_data(uint8_t *out, size_t max)
 {
 	uint8_t f[300];
@@ -139,7 +139,7 @@ static int ash_reset(void)
 		int n = ash_read_frame(f, sizeof f, 3000);
 		if (n < 0) return -1;
 		if (f[0] == 0xC1 && n >= 3) {
-			printf("ASH        : RSTACK, ASH-versie %u, reset-reden 0x%02X\n", f[1], f[2]);
+			printf("ASH        : RSTACK, ASH version %u, reset reason 0x%02X\n", f[1], f[2]);
 			ash_tx = ash_ack = 0;
 			return 0;
 		}
@@ -147,22 +147,22 @@ static int ash_reset(void)
 	return -1;
 }
 
-/* ------------------------------------------------------------ EZSP-laag */
+/* ------------------------------------------------------------ EZSP layer */
 
-/* stuurt commando; kopieert de parameters van het antwoord naar resp */
+/* sends a command; copies the parameters of the answer to resp */
 static int ezsp_cmd(uint16_t id, const uint8_t *par, size_t pn, uint8_t *resp, size_t rmax)
 {
 	uint8_t p[260], r[300];
 	size_t n = 0;
 	p[n++] = ezsp_seq;
 	if (ezsp_ver >= 8) {
-		p[n++] = 0x00;          /* frame control low: commando */
-		p[n++] = 0x01;          /* frame control high: frameformaat v1 */
+		p[n++] = 0x00;          /* frame control low: command */
+		p[n++] = 0x01;          /* frame control high: frame format v1 */
 		p[n++] = id & 0xFF;
 		p[n++] = id >> 8;
 	} else if (ezsp_ver >= 5) {
 		p[n++] = 0x00;          /* frame control */
-		p[n++] = 0xFF;          /* EZSP v5-v7: extended-header-marker */
+		p[n++] = 0xFF;          /* EZSP v5-v7: extended header marker */
 		p[n++] = 0x00;
 		p[n++] = id & 0xFF;
 	} else {
@@ -176,7 +176,7 @@ static int ezsp_cmd(uint16_t id, const uint8_t *par, size_t pn, uint8_t *resp, s
 		int rn = ash_recv_data(r, sizeof r);
 		if (rn < 0) return -1;
 		int hdr = ezsp_ver >= 5 ? 5 : 3;
-		if (rn < hdr || r[0] != ezsp_seq) continue;    /* callback of ander frame */
+		if (rn < hdr || r[0] != ezsp_seq) continue;    /* callback or other frame */
 		uint16_t rid = ezsp_ver >= 8 ? (r[3] | (r[4] << 8)) :
 			       ezsp_ver >= 5 ? r[4] : r[2];
 		if (rid != id) continue;
@@ -202,11 +202,11 @@ static void mfg_token(uint8_t tok, const char *label)
 {
 	uint8_t r[64];
 	int n = ezsp_cmd(0x000B, &tok, 1, r, sizeof r);       /* getMfgToken */
-	if (n < 1) { printf("%-11s: geen antwoord\n", label); return; }
+	if (n < 1) { printf("%-11s: no answer\n", label); return; }
 	int len = r[0] < n - 1 ? r[0] : n - 1;
 	int blank = 1;
 	for (int i = 0; i < len; i++) if (r[1 + i] != 0xFF) blank = 0;
-	if (len == 0 || blank) { printf("%-11s: (leeg)\n", label); return; }
+	if (len == 0 || blank) { printf("%-11s: (empty)\n", label); return; }
 	print_bytes(label, r + 1, len);
 }
 
@@ -232,27 +232,27 @@ int main(int argc, char **argv)
 	t.c_cc[VTIME] = 0;
 	tcsetattr(fd, TCSANOW, &t);
 	tcflush(fd, TCIOFLUSH);
-	printf("poort      : %s @ %d, flow control %s\n", dev, baud, rtscts ? "RTS/CTS" : "geen");
+	printf("port       : %s @ %d, flow control %s\n", dev, baud, rtscts ? "RTS/CTS" : "none");
 
 	if (ash_reset() < 0) {
-		printf("RESULTAAT  : geen RSTACK (module in reset, andere poort/baud/flow control?)\n");
+		printf("RESULT     : no RSTACK (module in reset, other port/baud/flow control?)\n");
 		return 1;
 	}
 
-	/* version: eerst legacy met protocol 4, dan met de versie van de NCP */
+	/* version: first legacy with protocol 4, then with the NCP version */
 	uint8_t r[64], v = 4;
 	int n = ezsp_cmd(0x0000, &v, 1, r, sizeof r);
-	if (n < 4) { printf("RESULTAAT  : RSTACK maar geen version-antwoord\n"); return 1; }
-	printf("version(4) : NCP meldt protocol %u, stack-type %u, stack 0x%04X\n",
+	if (n < 4) { printf("RESULT     : RSTACK but no version answer\n"); return 1; }
+	printf("version(4) : NCP reports protocol %u, stack type %u, stack 0x%04X\n",
 	       r[0], r[1], r[2] | (r[3] << 8));
 	if (r[0] != 4) {
 		ezsp_ver = r[0];
 		v = r[0];
 		n = ezsp_cmd(0x0000, &v, 1, r, sizeof r);
-		if (n < 4) { printf("RESULTAAT  : geen antwoord op version %u\n", v); return 1; }
+		if (n < 4) { printf("RESULT     : no answer to version %u\n", v); return 1; }
 	}
 	unsigned sv = r[2] | (r[3] << 8);
-	printf("EZSP       : protocol %u, stack-type %u, stack-versie %u.%u.%u.%u (0x%04X)\n",
+	printf("EZSP       : protocol %u, stack type %u, stack version %u.%u.%u.%u (0x%04X)\n",
 	       r[0], r[1], sv >> 12, (sv >> 8) & 0xF, (sv >> 4) & 0xF, sv & 0xF, sv);
 
 	uint8_t id = 0x11;                                     /* EZSP_VALUE_VERSION_INFO */
@@ -265,7 +265,7 @@ int main(int argc, char **argv)
 	if (n >= 5) {
 		unsigned bl = r[0] | (r[1] << 8);
 		printf("bootloader : %s0x%04X, plat %u, micro %u, phy %u\n",
-		       bl == 0xFFFF ? "GEEN standalone bootloader gemeld, " : "versie ",
+		       bl == 0xFFFF ? "NO standalone bootloader reported, " : "version ",
 		       bl, r[2], r[3], r[4]);
 	}
 
@@ -277,10 +277,10 @@ int main(int argc, char **argv)
 
 	n = ezsp_cmd(0x0013, NULL, 0, r, sizeof r);           /* getXncpInfo */
 	if (n >= 5 && r[0] == 0)
-		printf("XNCP       : fabrikant 0x%04X, versie 0x%04X\n",
+		printf("XNCP       : manufacturer 0x%04X, version 0x%04X\n",
 		       r[1] | (r[2] << 8), r[3] | (r[4] << 8));
 	else
-		printf("XNCP       : niet ondersteund\n");
+		printf("XNCP       : not supported\n");
 
 	mfg_token(0x00, "custom-ver");
 	mfg_token(0x01, "mfg-string");
@@ -293,8 +293,8 @@ int main(int argc, char **argv)
 
 	n = ezsp_cmd(0x0018, NULL, 0, r, sizeof r);           /* networkState */
 	if (n >= 1)
-		printf("netwerk    : status %u (0 = geen netwerk, 2 = in netwerk)\n", r[0]);
+		printf("network    : status %u (0 = no network, 2 = joined)\n", r[0]);
 
-	printf("RESULTAAT  : OK\n");
+	printf("RESULT     : OK\n");
 	return 0;
 }

@@ -52,8 +52,8 @@ def main(image, dtb, cmdfile, out, initrd=None):
     kernel = open(image, "rb").read()
     fdt = open(dtb, "rb").read()
     cmdline = open(cmdfile).readline().strip().encode()
-    assert kernel[0x38:0x3C] == b"ARM\x64", "geen arm64 Image"
-    assert fdt[:4] == b"\xd0\x0d\xfe\xed", "geen DTB"
+    assert kernel[0x38:0x3C] == b"ARM\x64", "not an arm64 Image"
+    assert fdt[:4] == b"\xd0\x0d\xfe\xed", "not a DTB"
     assert len(cmdline) < 512, "cmdline te lang (max 511)"
     second = rsce([("rk-kernel.dtb", fdt)])
     ramdisk = open(initrd, "rb").read() if initrd else empty_cpio()
@@ -68,7 +68,7 @@ def main(image, dtb, cmdfile, out, initrd=None):
                     b"", cmdline, sha.digest().ljust(32, b"\0"))
     h += b"\0" * 1024                           # extra_cmdline
     img = pad(h, PAGE) + pad(kernel, PAGE) + pad(ramdisk, PAGE) + pad(second, PAGE)
-    assert len(img) <= PART_SIZE, f"te groot voor recovery: {len(img)}"
+    assert len(img) <= PART_SIZE, f"too big for recovery: {len(img)}"
     open(out, "wb").write(img)
     print(f"{out}: {len(img)} bytes ({len(img) / PART_SIZE:.0%} of the partition)")
     print(f"  kernel {len(kernel)}  ramdisk {len(ramdisk)}  second(RSCE) {len(second)}  dtb {len(fdt)}")

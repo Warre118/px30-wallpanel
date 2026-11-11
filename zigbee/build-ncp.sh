@@ -16,8 +16,8 @@ arm-none-eabi-size "$ELF"
 
 # Check the return to the bootloader. In EmberZNet 7.x the EZSP handler is in libzigbee-ncp-uart.a:
 #  - processEzspCommand(LAUNCH_STANDALONE_BOOTLOADER): if getBootloaderVersion() != 0xFFFF
-#    (via bootloader_getInfo, dus component bootloader_interface nodig) -> vlag zetten;
-#  - sli_zigbee_ncp_tick_callback: vlag + serialOkToBootload() -> halInternalSysReset(0x0202 =
+#    (via bootloader_getInfo, so the bootloader_interface component is needed) -> set a flag;
+#  - sli_zigbee_ncp_tick_callback: flag + serialOkToBootload() -> halInternalSysReset(0x0202 =
 #    RESET_BOOTLOADER_BOOTLOAD): writes 0x0202/0xF00F to 0x20000000 -> the Gecko bootloader stays
 #    in its XMODEM menu. halLaunchStandaloneBootloader (legacy_bootloader_interface) is not needed.
 NM=$(arm-none-eabi-nm "$ELF")
@@ -25,7 +25,7 @@ grep -qE " T bootloader_getInfo$" <<<"$NM" || { echo "ERROR: bootloader_getInfo 
 grep -qE " B sli_zigbee_launch_standalone_bootloader$" <<<"$NM" || { echo "ERROR: EZSP bootloader flag missing"; exit 1; }
 arm-none-eabi-objdump -d "$ELF" | awk '/<sli_zigbee_ncp_tick_callback>:/,/^$/' \
   | grep -A1 -E "movw\s+r0, #514" | grep -q "<halInternalSysReset>" \
-  && echo "bootloader-terugkeer (EZSP launchStandaloneBootloader): OK" \
+  && echo "bootloader return (EZSP launchStandaloneBootloader): OK" \
   || { echo "ERROR: no return to the bootloader in the image"; exit 1; }
 
 DIST="$HOME/px30-build/zigbee/dist"; mkdir -p "$DIST"

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Debian 13 (trixie) arm64 kiosk-rootfs voor het Smatek PX30-wallpanel.
-# Rootless via mmdebstrap --mode=unshare (vereist: mmdebstrap, uidmap,
-# qemu-user-static + binfmt). Schrijft NIETS naar het panel.
+# Debian 13 (trixie) arm64 kiosk rootfs for the Smatek PX30 wall panel.
+# Rootless via mmdebstrap --mode=unshare (needs: mmdebstrap, uidmap,
+# qemu-user-static + binfmt). Writes NOTHING to the panel.
 #
-# Gebruik (in WSL):  bash rootfs/build-rootfs.sh
-# Optioneel:
-#   SSH_PUBKEY=/pad/naar/key.pub     sleutel voor gebruiker 'admin'
-#   WIFI_SSID=... WIFI_PSK=...       Wi-Fi vooraf instellen (anders later)
+# Usage (in WSL):  bash rootfs/build-rootfs.sh
+# Optional:
+#   SSH_PUBKEY=/path/to/key.pub      key for the user 'admin'
+#   WIFI_SSID=... WIFI_PSK=...       preset Wi-Fi (otherwise later)
 #   KERNEL_OUT=~/px30-build/out      kernel/DTB/modules (kernel/build-kernel.sh)
-# Uitvoer: ~/px30-build/rootfs/px30-rootfs.tar en px30-rootfs.ext4
+# Output: ~/px30-build/rootfs/px30-rootfs.tar and px30-rootfs.ext4
 # =====================================================================
 set -euo pipefail
 PROJ="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,37 +17,37 @@ OVERLAY="$PROJ/rootfs/overlay"
 KOUT="${KERNEL_OUT:-$HOME/px30-build/out}"
 DEST="${DEST:-$HOME/px30-build/rootfs}"
 SUITE=trixie
-# Basisimage zo klein als praktisch: de installatie (px30-rescue write-rootfs /
-# reinstall) vergroot het met resize2fs tot rootfs_a/b (2,8 GiB). Zo blijft ook
-# de factory-kopie (zstd) klein.
+# Base image as small as practical: installing (px30-rescue write-rootfs /
+# reinstall) grows it with resize2fs to rootfs_a/b (2.8 GiB). This also keeps
+# the factory copy (zstd) small.
 IMG_SIZE="${IMG_SIZE:-1800M}"
-# kernel-cmdline: één bron voor extlinux.conf en recovery.img (geen initramfs -> PARTLABEL, geen LABEL)
+# kernel cmdline: one source for extlinux.conf and recovery.img (no initramfs -> PARTLABEL, no LABEL)
 KCMDLINE="$(head -1 "$PROJ/kernel/cmdline.txt")"
 mkdir -p "$DEST"
 
 KVER="$(ls "$KOUT/lib/modules" | head -1)"
-[ -n "$KVER" ] && [ -f "$KOUT/boot/Image" ] || { echo "geen kernel in $KOUT; eerst kernel/build-kernel.sh"; exit 1; }
+[ -n "$KVER" ] && [ -f "$KOUT/boot/Image" ] || { echo "no kernel in $KOUT; run kernel/build-kernel.sh first"; exit 1; }
 # Optional. Without it SSH access is set up on the device (setup page: own
 # public key, generated key pair or password). Public images: no key.
 SSH_PUBKEY="${SSH_PUBKEY:-}"
 if [ -n "$SSH_PUBKEY" ]; then [ -r "$SSH_PUBKEY" ] || { echo "ERROR: ssh key $SSH_PUBKEY not readable"; exit 1; }; else echo "note: no SSH_PUBKEY, SSH access via the setup page"; fi
-echo "kernel: $KVER   suite: $SUITE   doel: $DEST"
+echo "kernel: $KVER   suite: $SUITE   target: $DEST"
 
 PKGS=(
-  # basis
+  # base
   systemd systemd-sysv udev dbus kmod iproute2 ca-certificates
   systemd-resolved systemd-timesyncd systemd-zram-generator
   sudo less nano procps
-  # netwerk
+  # network
   iwd firmware-realtek wireless-regdb openssh-server
-  # kiosk: Cog/WPE op DRM + Mesa (Panfrost)
-  # libgles2: zonder libGLESv2.so.2 crasht WPEWebProcess bij elke pagina (zwart scherm)
+  # kiosk: Cog/WPE on DRM + Mesa (Panfrost)
+  # libgles2: without libGLESv2.so.2 WPEWebProcess crashes on every page (black screen)
   cog wpewebkit-driver libgl1-mesa-dri libgles2 libegl1 fonts-dejavu-core
-  # opstartanimatie (script-plugin + DRM-renderer zitten in 'plymouth' zelf)
+  # boot animation (script plugin + DRM renderer are part of 'plymouth' itself)
   plymouth
-  # extra's: sensor-daemon, audio, i2c-debug
+  # extras: sensor daemon, audio, i2c debugging
   python3 alsa-utils i2c-tools zstd rsync
-  # Thread border router: otbr-agent (zelf gebouwd, zie zigbee/build-otbr.sh) publiceert via avahi
+  # Thread border router: otbr-agent (built here, see zigbee/build-otbr.sh) publishes via avahi
   avahi-daemon libavahi-client3 libnss-mdns
   # Home Assistant: px30-agent (MQTT discovery); venv for universal-silabs-flasher (px30-radio)
   python3-paho-mqtt python3-venv
@@ -62,20 +62,20 @@ RADIO_DIST="${RADIO_DIST:-$HOME/px30-build/zigbee/dist}"
 OTBR_DIST="${OTBR_DIST:-$HOME/px30-build/zigbee/otbr-dist}"
 [ -x "$OTBR_DIST/usr/sbin/otbr-agent" ] || { echo "WARNING: no otbr-agent in $OTBR_DIST: image without Thread"; OTBR_DIST=; }
 RADIO_FW=(ot-rcp-tyzs13-gsdk4.4.6-115200-hwflow-btl.gbl ncp-uart-hw-tyzs13-ezsp13-gsdk4.4.6-115200-hwflow.gbl)
-for f in "${RADIO_FW[@]}"; do [ -r "$RADIO_DIST/$f" ] || { echo "FOUT: $RADIO_DIST/$f ontbreekt"; exit 1; }; done
+for f in "${RADIO_FW[@]}"; do [ -r "$RADIO_DIST/$f" ] || { echo "ERROR: $RADIO_DIST/$f missing"; exit 1; }; done
 RADIO_HOOKS=()
 for f in "${RADIO_FW[@]}"; do RADIO_HOOKS+=(--customize-hook="upload '$RADIO_DIST/$f' /usr/share/px30-radio/firmware/$f"); done
 # universal-silabs-flasher (pip, not in Debian); empty = newest
 USF_VERSION="${USF_VERSION:-}"
 
-# Wi-Fi-profiel enkel als het via de omgeving werd meegegeven (nooit in git)
+# Wi-Fi profile only if passed in via the environment (never in git)
 WIFI_TMP=""
 if [ -n "${WIFI_SSID:-}" ] && [ -n "${WIFI_PSK:-}" ]; then
   WIFI_TMP="$(mktemp -d)"
   printf '[Security]\nPassphrase=%s\n' "$WIFI_PSK" > "$WIFI_TMP/$WIFI_SSID.psk"
   chmod 600 "$WIFI_TMP/$WIFI_SSID.psk"
 elif [ -n "${IWD_DIR:-}" ]; then
-  # kant-en-klare iwd-profielen (bv. tools/android-wifi-to-iwd.py), privé buiten het project
+  # ready-made iwd profiles (e.g. tools/android-wifi-to-iwd.py), kept private outside the project
   WIFI_TMP="$(mktemp -d)"
   cp "$IWD_DIR"/*.psk "$WIFI_TMP/"
   chmod 600 "$WIFI_TMP"/*.psk
@@ -115,11 +115,11 @@ mmdebstrap \
   ${OTBR_DIST:+--customize-hook="sync-in '$OTBR_DIST' /"} \
   --customize-hook='set -e
     R="$1"
-    # alles wat van de PC kwam is van root (sync-in neemt host-uid over)
+    # everything that came from the PC belongs to root (sync-in copies the host uid)
     chown -R 0:0 "$R/boot" "$R/usr/lib/modules" "$R/etc" "$R/usr/local"
-    # bestanden van /mnt/c komen als 0777 binnen en sync-in zet die modus ook op
-    # bestaande mappen (/, /etc, /usr ...) -> alles uit de overlay normaliseren
-    # (ook eigenaar: sync-in zet de host-uid 1000 op /, /usr ... = gebruiker kiosk!)
+    # files from /mnt/c arrive as 0777 and sync-in also applies that mode to
+    # existing directories (/, /etc, /usr ...) -> normalise everything from the overlay
+    # (owner too: sync-in puts host uid 1000 on /, /usr ... = the kiosk user!)
     (cd '"'$OVERLAY'"' && find . -type d) | while IFS= read -r d; do chown 0:0 "$R/$d"; chmod 755 "$R/$d"; done
     chown 0:0 "$R" "$R/usr" "$R/usr/lib"
     (cd '"'$OVERLAY'"' && find . -type f) | while IFS= read -r f; do chown 0:0 "$R/$f"; chmod 644 "$R/$f"; done
@@ -144,10 +144,10 @@ mmdebstrap \
     if chroot "$R" python3 -m venv /opt/usf && chroot "$R" /opt/usf/bin/pip install --no-cache-dir --disable-pip-version-check -q "universal-silabs-flasher'"${USF_VERSION:+==$USF_VERSION}"'"; then
       echo "usf: $(chroot "$R" /opt/usf/bin/pip show universal-silabs-flasher | sed -n "s/^Version: //p")"
     else
-      echo "WAARSCHUWING: universal-silabs-flasher niet geinstalleerd (px30-radio switch werkt niet)"; rm -rf "$R/opt/usf"
+      echo "WARNING: universal-silabs-flasher not installed (px30-radio switch will not work)"; rm -rf "$R/opt/usf"
     fi
     chown 0:0 "$R/usr/local/lib/px30/px30-state.sh"; chmod 644 "$R/usr/local/lib/px30/px30-state.sh"
-    # gebruikers: kiosk (autologin, geen wachtwoord, geen ssh) en admin (enkel ssh-sleutel)
+    # users: kiosk (autologin, no password, no ssh) and admin (ssh key only)
     chroot "$R" useradd -m -s /bin/bash -G video,render,input,audio kiosk
     chroot "$R" useradd -m -s /bin/bash -G sudo,video,render,input,audio,adm admin
     chroot "$R" passwd -l root
@@ -169,22 +169,22 @@ mmdebstrap \
     # otbr-agent (OTBR_DIST): installed but NOT enabled; px30-radio (switch/apply)
     # runs exactly one radio stack, the choice lives on /data
     if [ -x "$R/usr/sbin/otbr-agent" ]; then chown 0:0 "$R/usr/sbin/otbr-agent" "$R/usr/sbin/ot-ctl"; chmod 755 "$R/usr/sbin/otbr-agent" "$R/usr/sbin/ot-ctl"; fi
-    # beelddiagnose enkel in de debugfase (PANEL_DIAG=1)
+    # display diagnostics only in the debug phase (PANEL_DIAG=1)
     '"$( [ "${PANEL_DIAG:-0}" = 1 ] && echo 'chroot "$R" systemctl enable panel-diag; mkdir -p "$R/var/log/journal"; printf "[Journal]\nStorage=persistent\nSystemMaxUse=64M\n" > "$R/etc/systemd/journald.conf.d/zz-debug-persistent.conf"' )"'
-    # geen automatische apt-runs op een kiosk met 1 GB RAM en eMMC
+    # no automatic apt runs on a kiosk with 1 GB RAM and eMMC
     chroot "$R" systemctl disable apt-daily.timer apt-daily-upgrade.timer
-    # opstartanimatie: kiosk-start sluit Plymouth zelf af net voor Cog start
-    # (anders stopt ze al bij multi-user en zie je een stilstaand beeld of tty1)
+    # boot animation: kiosk-start stops Plymouth itself right before Cog starts
+    # (otherwise it stops at multi-user and you see a frozen frame or tty1)
     chroot "$R" systemctl mask plymouth-quit.service plymouth-quit-wait.service
-    # controle: niets in / of /usr mag nog van een gewone gebruiker zijn
+    # check: nothing in / or /usr may still belong to a regular user
     bad="$(find "$R" -xdev \( -path "$R/home" -o -path "$R/proc" -o -path "$R/sys" \) -prune -o \( -uid 1000 -o -uid 1001 -o -gid 1000 -o -gid 1001 \) -print | head -5)"
-    [ -z "$bad" ] || { echo "FOUT: niet-root eigenaar op: $bad"; exit 1; }
+    [ -z "$bad" ] || { echo "ERROR: non-root owner on: $bad"; exit 1; }
     ln -sf /run/systemd/resolve/stub-resolv.conf "$R/etc/resolv.conf"
-    # ssh-hostkeys pas bij eerste boot (anders delen alle images dezelfde sleutels)
+    # ssh host keys only at first boot (otherwise all images share the same keys)
     rm -f "$R"/etc/ssh/ssh_host_*
     mkdir -p "$R/etc/systemd/system/ssh.service.d"
-    # sleutels aanmaken VOOR Debian'"'"'s eigen "sshd -t"-controle (anders faalt ssh.service)
-    # sleutels op /data: blijven bewaard bij herinstallatie (zie sshd_config.d/10-px30.conf)
+    # create the keys BEFORE Debian'"'"'s own "sshd -t" check (otherwise ssh.service fails)
+    # keys on /data: kept across reinstalls (see sshd_config.d/10-px30.conf)
     printf "[Service]\nExecStartPre=\nExecStartPre=/usr/bin/mkdir -p /data/ssh/etc/ssh\nExecStartPre=/usr/bin/ssh-keygen -A -f /data/ssh\nExecStartPre=/usr/local/sbin/px30-ssh-prepare\nExecStartPre=/usr/sbin/sshd -t\n" > "$R/etc/systemd/system/ssh.service.d/hostkeys.conf"
     # modules-index
     chroot "$R" depmod -a '"$KVER"'
@@ -198,20 +198,20 @@ label px30
     fdt /boot/px30-smatek-wallpanel.dtb
     append '"$KCMDLINE"'
 EOT
-    # machine-id leeg: wordt bij eerste boot aangemaakt
+    # machine-id empty: created at first boot
     : > "$R/etc/machine-id"
   ' \
   "$SUITE" "$DEST/px30-rootfs.tar" http://deb.debian.org/debian
 
 echo "--- tarball: $(du -h "$DEST/px30-rootfs.tar" | cut -f1)"
-# ext4-image: uitpakken in een user-namespace (subuid-mapping) zodat eigenaars
-# kloppen, dan mke2fs -d op die map. Geen root of libarchive nodig.
+# ext4 image: unpack in a user namespace (subuid mapping) so the owners are
+# right, then mke2fs -d on that directory. No root or libarchive needed.
 rm -f "$DEST/px30-rootfs.ext4"
 unshare --map-auto --map-root-user --mount bash -euc '
   T="$(mktemp -d)"
-  # /dev-nodes kunnen zonder root niet aangemaakt worden; systemd mount /dev zelf
+  # /dev nodes cannot be created without root; systemd mounts /dev itself
   tar -C "$T" --numeric-owner --exclude="./dev/*" -xpf "$1"
   mke2fs -q -t ext4 -L px30-root -E root_owner=0:0 -d "$T" "$2" "$3"
   rm -rf "$T"
 ' _ "$DEST/px30-rootfs.tar" "$DEST/px30-rootfs.ext4" "$IMG_SIZE"
-echo "--- ext4-image: $DEST/px30-rootfs.ext4 ($IMG_SIZE, label px30-root)"
+echo "--- ext4 image: $DEST/px30-rootfs.ext4 ($IMG_SIZE, label px30-root)"

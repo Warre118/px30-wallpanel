@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # =====================================================================
-# PX30 wallpanel – read-only hardware-audit v2
+# PX30 wall panel – read-only hardware audit v2
 #
-# Draait vanuit Termux (of Git Bash / Linux) met een werkende
-# 'adb connect <ip>:5555' naar het panel.
+# Runs from Termux (or Git Bash / Linux) with a working
+# 'adb connect <ip>:5555' to the panel.
 #
-# DIT SCRIPT SCHRIJFT NIETS NAAR HET PANEL.
-#  - Enige statuswijziging: 'adb root' (herstart adbd als root; enkel
-#    mogelijk omdat de build 'userdebug' is). Verdwijnt na reboot.
-#  - Alle 'dd'-aanroepen gebruiken uitsluitend if=<panel>, nooit of=<panel>.
+# THIS SCRIPT WRITES NOTHING TO THE PANEL.
+#  - Only state change: 'adb root' (restarts adbd as root; only possible
+#    because the build is 'userdebug'). Gone after a reboot.
+#  - Every 'dd' call only uses if=<panel>, never of=<panel>.
 #
-# Gebruik:  bash audit_v2.sh [serial]     bv. bash audit_v2.sh 192.168.1.50:5555
-# Output:   map px30-audit-<datum>/ met audit.log + binaire dumps
+# Usage:    bash audit_v2.sh [serial]     e.g. bash audit_v2.sh <panel-ip>:5555
+# Output:   directory px30-audit-<date>/ with audit.log + binary dumps
 # =====================================================================
 set -u
 
@@ -24,7 +24,7 @@ mkdir -p "$OUT"
 LOG="$OUT/audit.log"
 
 sec() { printf '\n===== %s =====\n' "$1" | tee -a "$LOG"; }
-run() { # run "<shell-commando op panel>"
+run() { # run "<shell command on the panel>"
   printf -- '--- $ %s\n' "$1" >>"$LOG"
   $ADB shell "$1" >>"$LOG" 2>&1
 }
@@ -32,14 +32,14 @@ run() { # run "<shell-commando op panel>"
 sec "ADB / ROOT"
 $ADB devices -l | tee -a "$LOG"
 run 'id; getprop ro.build.type; getprop ro.debuggable; getprop ro.adb.secure'
-echo "Probeer adb root (alleen mogelijk op userdebug/eng builds)..." | tee -a "$LOG"
+echo "Trying adb root (only possible on userdebug/eng builds)..." | tee -a "$LOG"
 $ADB root 2>&1 | tee -a "$LOG"
 sleep 3
-# na 'adb root' kan een netwerk-ADB-verbinding wegvallen -> opnieuw verbinden
+# after 'adb root' a network ADB connection may drop -> reconnect
 if [ -n "$SERIAL" ]; then adb connect "$SERIAL" >/dev/null 2>&1; sleep 2; fi
 $ADB wait-for-device
 ROOTID="$($ADB shell id -u 2>/dev/null | tr -d '\r')"
-echo "uid na adb root: $ROOTID" | tee -a "$LOG"
+echo "uid after adb root: $ROOTID" | tee -a "$LOG"
 IS_ROOT=0; [ "$ROOTID" = "0" ] && IS_ROOT=1
 
 sec "KERNEL / BOOT"
@@ -51,10 +51,10 @@ run 'ls /proc/config.gz 2>&1'
 sec "DEVICE TREE"
 run 'cat /proc/device-tree/model; echo; cat /proc/device-tree/compatible | tr "\0" " "; echo'
 run 'ls -la /sys/firmware/ 2>&1'
-# Live DTB (bevat paneel-timings, DSI-init-sequentie, touch-GPIO's, regulators)
+# Live DTB (contains panel timings, the DSI init sequence, touch GPIOs, regulators)
 $ADB exec-out 'cat /sys/firmware/fdt' > "$OUT/live.dtb" 2>/dev/null
-echo "live.dtb: $(wc -c < "$OUT/live.dtb") bytes (0 = niet leesbaar)" | tee -a "$LOG"
-# Snelle tekstweergave van de belangrijkste nodes, ook zonder dtc op de PC
+echo "live.dtb: $(wc -c < "$OUT/live.dtb") bytes (0 = not readable)" | tee -a "$LOG"
+# Quick text view of the main nodes, also without dtc on the PC
 run 'for d in /proc/device-tree/display-subsystem /proc/device-tree/dsi@* /proc/device-tree/panel* /proc/device-tree/*/panel* /proc/device-tree/rgb /proc/device-tree/lvds /proc/device-tree/*/rk618* /proc/device-tree/i2c@*/*@5a; do [ -e "$d" ] && { echo "### $d"; ls "$d"; for p in status compatible; do [ -f "$d/$p" ] && { printf "%s=" $p; tr "\0" " " < "$d/$p"; echo; }; done; }; done 2>/dev/null'
 run 'find /proc/device-tree -name "panel-init-sequence" -o -name "display-timings" -o -name "rockchip,data-mapping" 2>/dev/null'
 
@@ -90,16 +90,16 @@ run 'for h in /sys/class/mmc_host/*; do echo "### $h"; ls $h; for c in $h/mmc*; 
 run 'cat /proc/partitions'
 run 'ls -la /dev/block/ /dev/block/platform/*/*/by-name/ /dev/block/by-name/ 2>/dev/null'
 run 'ls -la /dev/block/mmcblk1boot* 2>&1; cat /sys/block/mmcblk1/size'
-# Rockchip 'parameter'-blok (partitie-layout in tekst), read-only, eerste 4 MiB
+# Rockchip 'parameter' block (partition layout as text), read-only, first 4 MiB
 if [ "$IS_ROOT" = 1 ]; then
   $ADB exec-out 'dd if=/dev/block/mmcblk1 bs=512 skip=0 count=8192 2>/dev/null' > "$OUT/emmc-first-4MiB.bin"
-  run 'sgdisk --print /dev/block/mmcblk1 2>&1 || echo "sgdisk niet aanwezig"'
-  # resource-partitie bevat de DTB('s) en boot-logo's (klein, read-only)
+  run 'sgdisk --print /dev/block/mmcblk1 2>&1 || echo "sgdisk not present"'
+  # the resource partition holds the DTB(s) and boot logos (small, read-only)
   $ADB exec-out 'dd if=/dev/block/mmcblk1p4 bs=1048576 2>/dev/null' > "$OUT/resource.img"
 fi
 
-sec "GPIO / REGULATORS / CLOCKS (debugfs, alleen root)"
-run 'mount | grep debugfs || echo geen-debugfs'
+sec "GPIO / REGULATORS / CLOCKS (debugfs, root only)"
+run 'mount | grep debugfs || echo no-debugfs'
 run 'cat /sys/kernel/debug/gpio 2>&1 | head -150'
 run 'cat /sys/kernel/debug/regulator/regulator_summary 2>&1 | head -120'
 run 'cat /sys/kernel/debug/pinctrl/*/pinmux-pins 2>&1 | grep -v "UNCLAIMED" | head -150'
@@ -108,12 +108,12 @@ sec "MODULES / GPU"
 run 'lsmod 2>&1; ls /vendor/lib/modules /system/lib/modules 2>&1'
 run 'ls -la /dev/mali* /dev/dri 2>&1; cat /sys/class/misc/mali0/device/gpuinfo 2>&1'
 
-sec "USB (OTG / host – nodig voor Loader/Maskrom-herstel)"
+sec "USB (OTG / host – needed for Loader/Maskrom recovery)"
 run 'ls /sys/bus/platform/drivers/ | grep -iE "dwc|usb|otg"; cat /sys/class/udc/*/state 2>&1'
 
-sec "KLAAR"
-echo "Root-sessie: $IS_ROOT" | tee -a "$LOG"
+sec "DONE"
+echo "Root session: $IS_ROOT" | tee -a "$LOG"
 ls -la "$OUT" | tee -a "$LOG"
 echo
-echo "Stuur de map $OUT (vooral audit.log, live.dtb, resource.img) door voor analyse."
-echo "adbd terug naar normaal: 'adb unroot' of herstart het panel."
+echo "Send the directory $OUT (mainly audit.log, live.dtb, resource.img) for analysis."
+echo "adbd back to normal: 'adb unroot' or reboot the panel."

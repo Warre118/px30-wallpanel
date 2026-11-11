@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * Smatek PX30 Home Assistant wall panel (480x480, 4")
- * Android-identificatie: "Rockchip PX30 evb ddr3 board", rockchip,px30-evb-ddr3-v10
+ * Android identification: "Rockchip PX30 evb ddr3 board", rockchip,px30-evb-ddr3-v10
  *
- * ONTWERP – NOG NIET OP HARDWARE GETEST.
- * Afgeleid van de live Android-DTB (dts/android-live.dts, audit 10-11-2026)
- * en mainline px30-evb.dts. Elke afwijking van de EVB is gemarkeerd met "PANEL:".
+ * Derived from the live Android DTB (dts/android-live.dts, audit 10-11-2026)
+ * and mainline px30-evb.dts. Every deviation from the EVB is marked "PANEL:".
  *
- * Openstaand (zie BEVINDINGEN.md):
- *  - paneel: mainline panel-sitronix-st7701 heeft deze init-sequentie nog niet
- *    -> eigen compatible + patch nodig (kernel/st7701-smatek.patch, todo)
- *  - touch CST226SE: geen mainline-driver -> out-of-tree module (todo)
- *  - STK3x3x: exacte chip-ID (reg 0x3e) nog niet gelezen
- *  - uart4 / uart5: aangesloten op onbekende randapparatuur (Tuya-module?)
- *  - mbi5041 LED-driver op bit-banged gpio3 (functie onbekend)
+ * Open points (see docs/hardware.md):
+ *  - display: mainline panel-sitronix-st7701 does not have this init sequence
+ *    -> own compatible + patch (kernel/st7701-smatek.patch)
+ *  - touch CST226SE: handled by mainline hynitron_cstxxx (cst3xx protocol)
+ *  - STK3x3x: exact chip ID (reg 0x3e) not read yet
+ *  - uart4: connected to unknown peripherals (RS485 in the factory test app)
+ *  - mbi5041 LED driver on bit-banged gpio3 (function unknown)
  */
 
 /dts-v1/;
@@ -27,8 +26,8 @@
 	model = "Smatek PX30 480x480 wall panel";
 	compatible = "smatek,px30-wallpanel", "rockchip,px30";
 
-	/* ramoops: identiek aan Android (0x110000, 960 KiB, zelfde indeling), zodat
-	 * Android na een warme herstart ons kernellog toont in /sys/fs/pstore */
+	/* ramoops: identical to Android (0x110000, 960 KiB, same layout), so that
+	 * Android shows our kernel log in /sys/fs/pstore after a warm reboot */
 	reserved-memory {
 		#address-cells = <2>;
 		#size-cells = <2>;
@@ -51,7 +50,7 @@
 	};
 
 	chosen {
-		/* Android: earlyprintk op 0xff160000 = uart2, m0-pinnen (GPIO1_D2/D3) */
+		/* Android: earlyprintk at 0xff160000 = uart2, m0 pins (GPIO1_D2/D3) */
 		stdout-path = "serial2:1500000n8";
 	};
 
@@ -129,7 +128,7 @@
 		simple-audio-card,widgets =
 			"Microphone", "Mic Jack",
 			"Headphone", "Headphone Jack";
-		/* PANEL: routing uit Android; luidspreker-uitgang nog te bevestigen */
+		/* PANEL: routing from Android; speaker output still to be confirmed */
 		simple-audio-card,routing =
 			"MICL", "Mic Jack",
 			"Headphone Jack", "HPOL",
@@ -162,14 +161,14 @@
 };
 
 /*
- * Vendor-U-Boot laat aclk_peri_src op CPLL staan (CLKSEL_CON14 bit 15 = 1).
- * Mainline kent die mux-ingang enkel als "dummy_cpll" -> de hele peri-tak is
- * een wees met rate 0, en de assigned-clock-rates uit px30.dtsi zetten dan de
- * maximale deler: AHB van de peri-bus (eMMC, USB-OTG, ...) op 96/32 = 3 MHz.
- * Gevolg: dwc2-gadget krijgt zijn TX-FIFO niet op tijd gevuld (USB 2.0 eist
- * >= 30 MHz AHB) -> Windows "Device Descriptor Request Failed".
- * Oplossing (zelfde als Android, CLKSEL_CON14 = 0x6705): eerst ompoten naar
- * GPLL (1200 MHz), dan de normale rates: ACLK 200 MHz, HCLK 150 MHz.
+ * Vendor U-Boot leaves aclk_peri_src on CPLL (CLKSEL_CON14 bit 15 = 1).
+ * Mainline only knows that mux input as "dummy_cpll" -> the whole peri branch
+ * is an orphan with rate 0, and the assigned-clock-rates from px30.dtsi then
+ * set the maximum divider: AHB of the peri bus (eMMC, USB OTG, ...) at
+ * 96/32 = 3 MHz. Result: dwc2-gadget cannot fill its TX FIFO in time (USB 2.0
+ * needs >= 30 MHz AHB) -> Windows "Device Descriptor Request Failed".
+ * Fix (same as Android, CLKSEL_CON14 = 0x6705): first switch over to
+ * GPLL (1200 MHz), then the normal rates: ACLK 200 MHz, HCLK 150 MHz.
  */
 &cru {
 	assigned-clocks = <&cru PLL_NPLL>, <&cru ACLK_PERI_SRC>,
@@ -205,8 +204,8 @@
 	panel@0 {
 		/*
 		 * PANEL: Sitronix ST7701(S), 2 lanes, RGB888, 480x480 @ 16 MHz.
-		 * Eigen compatible: de init-sequentie verschilt van alle panelen
-		 * die mainline panel-sitronix-st7701 nu kent.
+		 * Own compatible: the init sequence differs from every panel
+		 * that mainline panel-sitronix-st7701 knows today.
 		 */
 		compatible = "smatek,px30-wallpanel-panel", "sitronix,st7701";
 		reg = <0>;
@@ -214,10 +213,10 @@
 		IOVCC-supply = <&vcc_1v8>;
 		VCC-supply = <&vcc3v3_lcd>;
 		/*
-		 * Fysiek actief-laag (Android: flags 1), maar panel-sitronix-st7701
-		 * keert de logica zelf om (set_value(1) = reset los). De binding
-		 * schrijft daarom GPIO_ACTIVE_HIGH voor; met ACTIVE_LOW bleef het
-		 * paneel permanent in reset (zwart scherm, debug9 11-11-2026).
+		 * Physically active-low (Android: flags 1), but panel-sitronix-st7701
+		 * inverts the logic itself (set_value(1) = reset released). The
+		 * binding therefore prescribes GPIO_ACTIVE_HIGH; with ACTIVE_LOW the
+		 * panel stayed in reset forever (black screen, debug9 11-11-2026).
 		 */
 		reset-gpios = <&gpio3 RK_PA0 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
@@ -245,7 +244,7 @@
 	status = "okay";
 };
 
-/* PANEL: geen Ethernet-PHY bestukt (alle MDIO phy_id = 0xffff) -> gmac uit */
+/* PANEL: no Ethernet PHY fitted (every MDIO phy_id = 0xffff) -> gmac off */
 
 &gpu {
 	mali-supply = <&vdd_log>;
@@ -264,7 +263,7 @@
 		pinctrl-0 = <&pmic_int>;
 		system-power-controller;
 		wakeup-source;
-		/* clkout2 = 32k LPO voor de RTL8723DS (WiFi+BT); Android: ext_clock = <&rk809 1> */
+		/* clkout2 = 32k LPO for the RTL8723DS (WiFi+BT); Android: ext_clock = <&rk809 1> */
 		#clock-cells = <1>;
 		clock-output-names = "rk809-clkout1", "rk809-clkout2";
 		#sound-dai-cells = <0>;
@@ -413,7 +412,7 @@
 				};
 			};
 
-			/* PANEL: geen SD-slot; LDO6/7/8/9 (vcc_sd, DVP-camera) ongebruikt */
+			/* PANEL: no SD slot; LDO6/7/8/9 (vcc_sd, DVP camera) unused */
 			vcc_sd: LDO_REG6 {
 				regulator-name = "vcc_sd";
 				regulator-min-microvolt = <3300000>;
@@ -424,7 +423,7 @@
 				regulator-name = "vcc2v8_dvp";
 				regulator-min-microvolt = <3300000>;
 				regulator-max-microvolt = <3300000>;
-				/* Android: always-on; laten staan tot bekend is wat eraan hangt */
+				/* Android: always-on; keep it on until we know what is connected */
 				regulator-always-on;
 			};
 
@@ -442,7 +441,7 @@
 				regulator-always-on;
 			};
 
-			/* PANEL: SWITCH1/2 omgekeerd t.o.v. px30-evb */
+			/* PANEL: SWITCH1/2 swapped compared to px30-evb */
 			vcc5v0_host: SWITCH_REG1 {
 				regulator-name = "vcc5v0_host";
 				regulator-always-on;
@@ -465,12 +464,12 @@
 	status = "okay";
 
 	/*
-	 * PANEL: Hynitron CST226SE (mainline hynitron_cstxxx, cst3xx-protocol).
+	 * PANEL: Hynitron CST226SE (mainline hynitron_cstxxx, cst3xx protocol).
 	 * Android: irq = gpio0-13 (level low),
-	 * "wake" = gpio0-12 hoog tijdens werking -> hier als reset (active low).
+	 * "wake" = gpio0-12 high during operation -> used as reset here (active low).
 	 */
 	touchscreen@5a {
-		/* cst3xx-protocol bevestigd via i2ctransfer (chkcode 0xcaca5fdc, 480x480) */
+		/* cst3xx protocol confirmed via i2ctransfer (chkcode 0xcaca5fdc, 480x480) */
 		compatible = "hynitron,cst226se", "hynitron,cst340";
 		reg = <0x5a>;
 		interrupt-parent = <&gpio0>;
@@ -500,10 +499,10 @@
 	i2c-scl-rising-time-ns = <300>;
 
 	/*
-	 * PANEL: Sensortek STK3x3x licht + nabijheid. Exact type (3310/3311/3335)
-	 * volgt uit register 0x3e; mainline stk3310 aanvaardt alle drie.
-	 * Android gebruikt de IRQ niet (irq_enable = 0, polling); of GPIO3_C0
-	 * fysiek bedraad is, is onbekend -> interrupt pas toevoegen na test.
+	 * PANEL: Sensortek STK3x3x light + proximity. The exact type (3310/3311/3335)
+	 * follows from register 0x3e; mainline stk3310 accepts all three.
+	 * Android does not use the IRQ (irq_enable = 0, polling); whether GPIO3_C0
+	 * is physically wired is unknown -> only add the interrupt after a test.
 	 */
 	light-sensor@47 {
 		compatible = "sensortek,stk3311";
@@ -513,7 +512,7 @@
 		/* interrupts = <RK_PC0 IRQ_TYPE_EDGE_FALLING>; */
 	};
 
-	/* PANEL: onbekend apparaat op 0x3c (Android-driver "smatek,tp") – niet beschreven */
+	/* PANEL: unknown device at 0x3c (Android driver "smatek,tp") - not described */
 };
 
 &i2s1_2ch {
@@ -527,7 +526,7 @@
 	vccio3-supply = <&vcc_3v0>;
 	vccio4-supply = <&vcc3v0_pmu>;
 	vccio5-supply = <&vcc_3v0>;
-	/* vccio6 niet ingesteld in Android (GMAC-domein, ongebruikt) */
+	/* vccio6 not set in Android (GMAC domain, unused) */
 };
 
 &pinctrl {
@@ -639,10 +638,10 @@
 };
 
 &uart1 {
-	/* PANEL: RTL8723DS Bluetooth (Android: uart1 + RTS als GPIO1_C3) */
+	/* PANEL: RTL8723DS Bluetooth (Android: uart1 + RTS as GPIO1_C3) */
 	/*
-	 * Zonder DMA: met de dw-uart-DMA stokt de TX tijdens de firmware-
-	 * download ("command 0xfc20 tx timeout"), net als op de RK3326
+	 * Without DMA: with the dw-uart DMA the TX stalls during the firmware
+	 * download ("command 0xfc20 tx timeout"), just like on the RK3326
 	 * Gameforce Chi (mainline rk3326-gameforce-chi.dts).
 	 */
 	/delete-property/ dma-names;
@@ -663,25 +662,25 @@
 };
 
 &uart2 {
-	/* debugconsole; Android gebruikt m0 (GPIO1_D2/D3) */
+	/* debug console; Android uses m0 (GPIO1_D2/D3) */
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart2m0_xfer>;
 	status = "okay";
 };
 
 /*
- * PANEL: uart4 (ff170000) staat in Android ook aan, met RTS/CTS. De
- * fabriekstest-app gebruikt /dev/ttyS3 en /dev/ttyS4 op 9600 baud voor
- * RS485 ("Four85"). GPIO1_D4 (uart4-pin) is in Android echter als sysfs-GPIO
- * geëxporteerd. Functie op dit exemplaar onbekend -> uit laten.
+ * PANEL: uart4 (ff170000) is enabled in Android too, with RTS/CTS. The
+ * factory test app uses /dev/ttyS3 and /dev/ttyS4 at 9600 baud for
+ * RS485 ("Four85"). GPIO1_D4 (a uart4 pin) is however exported as a sysfs
+ * GPIO in Android. Function on this unit unknown -> leave it off.
  */
 
 &uart5 {
 	/*
-	 * PANEL: Zigbee-module, Silicon Labs EZSP (EmberZNet NCP).
-	 * Fabriekstest: /dev/ttyS5 @ 115200. RTS/CTS zijn gemuxt (GPIO3_A3/A5)
-	 * -> hardware flow control. Bruikbaar vanuit ZHA (bellows) of
-	 * Zigbee2MQTT (adapter ember/ezsp) als /dev/ttyS5.
+	 * PANEL: Zigbee/Thread module, Silicon Labs EFR32MG13 (TYZS13).
+	 * Factory test: /dev/ttyS5 @ 115200. RTS/CTS are muxed (GPIO3_A3/A5)
+	 * -> hardware flow control. Used via /dev/ttyThread (udev symlink) by
+	 * otbr-agent or the Zigbee TCP bridge (see px30-radio).
 	 */
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart5_xfer &uart5_cts &uart5_rts>;
@@ -690,18 +689,18 @@
 };
 
 &usb20_otg {
-	/* OTG-poort: nodig voor Loader/Maskrom-herstel; onder Debian USB-gadget
-	 * (NCM-netwerk naar de PC). Geen ID-pin-detectie nodig. */
+	/* OTG port: needed for Loader/Maskrom recovery; under Debian a USB gadget
+	 * (NCM network to the PC). No ID pin detection needed. */
 	dr_mode = "peripheral";
 	status = "okay";
 };
 
 /*
- * TIJDELIJK UIT (11-11-2026): eerste boot liep volledig vast meteen na de
- * dwc2-probe, net voor EHCI/OHCI (laatste regel 0.437 s "hub 1-0:1.0: 1 port
- * detected"). Android geeft deze nodes 2 klokken (HCLK_HOST + 0x8b), mainline
- * enkel HCLK_HOST -> vermoedelijk ontbrekende (arbiter)klok = bus-hang.
- * Geen bekende USB-hostpoort op dit panel; OTG (dwc2) blijft aan.
+ * TEMPORARILY OFF (11-11-2026): the first boot hung completely right after the
+ * dwc2 probe, just before EHCI/OHCI (last line 0.437 s "hub 1-0:1.0: 1 port
+ * detected"). Android gives these nodes 2 clocks (HCLK_HOST + 0x8b), mainline
+ * only HCLK_HOST -> probably a missing (arbiter) clock = bus hang.
+ * No known USB host port on this panel; OTG (dwc2) stays on.
  */
 &usb_host0_ehci {
 	status = "disabled";

@@ -1,6 +1,6 @@
-"""Vergelijkt de PC-back-up met de sha256-hashes die op het panel berekend zijn.
-Elke partitie wordt gecontroleerd als byte-bereik binnen emmc-full.img, en ook
-de losse partitie-images en boot0/boot1."""
+"""Compares the PC backup with the sha256 hashes computed on the panel.
+Every partition is checked as a byte range inside emmc-full.img, and so are
+the separate partition images and boot0/boot1."""
 import hashlib, os, sys
 
 SECTOR = 512
@@ -45,7 +45,7 @@ if "mmcblk1" in panel:
 man = os.path.join(run, "chunks.sha256")
 if os.path.exists(man):
     live = [l.split()[0] for l in open(man) if l.strip().endswith("LIVE")]
-    print(f"blokken met live-data (veranderden tijdens de dump): {live or 'geen'}")
+    print(f"blocks with live data (changed during the dump): {live or 'none'}")
 for b in ("mmcblk1boot0", "mmcblk1boot1"):
     check(f"{b}.img", sha(os.path.join(run, b + ".img")), b)
 for dev, (start, size_s, name) in sorted(parts.items(), key=lambda kv: kv[1][0]):
@@ -53,5 +53,5 @@ for dev, (start, size_s, name) in sorted(parts.items(), key=lambda kv: kv[1][0])
     single = os.path.join(run, "partitions", name + ".img")
     if os.path.exists(single):
         check(f"partitions/{name}.img", sha(single), dev)
-print(f"\n{sum(results)}/{len(results)} gelijk. Verschillen bij userdata/cache/metadata"
-      " en het geheel zijn te verwachten zolang Android draait (die wijzigen tijdens de dump).")
+print(f"\n{sum(results)}/{len(results)} equal. Differences in userdata/cache/metadata"
+      " and the whole image are expected while Android runs (they change during the dump).")
