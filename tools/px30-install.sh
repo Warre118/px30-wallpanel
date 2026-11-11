@@ -35,7 +35,7 @@ rs 'px30-rescue status' | grep -q rootfs_a || { echo "ERROR: no PX30 layout (use
 echo "boot + recovery ..."
 rs 'px30-rescue write-part boot' < "$D/px30-boot.img"
 rs 'px30-rescue write-part recovery' < "$D/px30-rescue.img"
-echo "rootfs_a ($(du -h "$D/px30-rootfs.img.zst" | cut -f1) gecomprimeerd) ..."
+echo "rootfs_a ($(du -h "$D/px30-rootfs.img.zst" | cut -f1) compressed) ..."
 t0=$SECONDS
 rs 'px30-rescue write-rootfs a' < "$D/px30-rootfs.img.zst"
 echo "  $((SECONDS - t0)) s"
@@ -50,7 +50,7 @@ rs 'px30-rescue put-factory SHA256SUMS' < "$D/SHA256SUMS"
 rs '. /lib/px30-state.sh
   mkdir -p /mnt/f; mount -o ro $(px30_part factory) /mnt/f
   cd /mnt/f && sed -e "s/px30-rootfs.img.zst/rootfs.img.zst/;s/px30-boot.img/boot.img/;s/px30-rescue.img/recovery.img/" SHA256SUMS | sha256sum -c
-  for p in boot recovery; do n=$(wc -c < /mnt/f/$p.img); head -c $n $(px30_part $p) | cmp -s - /mnt/f/$p.img && echo "$p: OK" || echo "$p: VERSCHIL"; done
+  for p in boot recovery; do n=$(wc -c < /mnt/f/$p.img); head -c $n $(px30_part $p) | cmp -s - /mnt/f/$p.img && echo "$p: OK" || echo "$p: DIFFERENT"; done
   cd /; umount /mnt/f
   px30-rescue status'
 echo "done; reboot with: ssh ... root@10.55.0.1 px30-rescue reboot"
