@@ -1,0 +1,90 @@
+{
+ "_comment": "px30-radio catalog, written by fwpipe. Fetched by 'px30-update radio sync' into /data/radio.",
+ "generated": "2026-11-12T20:26:24Z",
+ "firmware": [
+  {
+   "stack": "router",
+   "channel": "latest",
+   "version": "7.5.2.0",
+   "description": "Zigbee router (joins an open network by itself; CLI on the UART, 'bootloader reboot' for updates)",
+   "file": "px30-tyzs13_zigbee_router_7.5.2.0.gbl",
+   "url": "https://raw.githubusercontent.com/Warre118/px30-wallpanel/firmware/zigbee_router/latest/px30-tyzs13_zigbee_router_7.5.2.0.gbl",
+   "sha256": "c4e04453ae6cdac661515f02c33fc6aeee1f947c0eb38e07c180ea4bd1e1953a",
+   "size": 245768,
+   "baudrate": 115200,
+   "bootloader_baudrate": 115200,
+   "release_summary": "Zigbee router 7.5.2.0 \u00b7 Gecko SDK 4.5.1 \u00b7 v4.5.1 \u00b7 experimental",
+   "release_url": "https://github.com/Warre118/px30-wallpanel/blob/firmware/zigbee_router/latest/RELEASE_NOTES.md"
+  },
+  {
+   "stack": "router",
+   "channel": "stable",
+   "version": "7.5.0.0",
+   "description": "Zigbee router (joins an open network by itself; CLI on the UART, 'bootloader reboot' for updates)",
+   "file": "px30-tyzs13_zigbee_router_7.5.0.0.gbl",
+   "url": "https://raw.githubusercontent.com/Warre118/px30-wallpanel/firmware/zigbee_router/stable/px30-tyzs13_zigbee_router_7.5.0.0.gbl",
+   "sha256": "a01fbd8e864b79f20ae67e084efbcd6ab1cb92f840facd198345afe3ab6f0380",
+   "size": 245304,
+   "baudrate": 115200,
+   "bootloader_baudrate": 115200,
+   "release_summary": "Zigbee router 7.5.0.0 \u00b7 Gecko SDK 4.4.6 \u00b7 v4.4.6 \u00b7 experimental",
+   "release_url": "https://github.com/Warre118/px30-wallpanel/blob/firmware/zigbee_router/stable/RELEASE_NOTES.md"
+  },
+  {
+   "stack": "thread",
+   "channel": "latest",
+   "version": "gsdk-4.5.1",
+   "description": "OpenThread RCP (Spinel, 115200 hw-flow, can return to the Gecko bootloader)",
+   "file": "px30-tyzs13_openthread_rcp_gsdk-4.5.1.gbl",
+   "url": "https://raw.githubusercontent.com/Warre118/px30-wallpanel/firmware/openthread_rcp/latest/px30-tyzs13_openthread_rcp_gsdk-4.5.1.gbl",
+   "sha256": "a93fd09dd52a8fe480e7d14d442c75a4296c6413f588bb2d90e147ac346804ed",
+   "size": 109000,
+   "baudrate": 115200,
+   "bootloader_baudrate": 115200,
+   "release_summary": "Thread / Matter radio (OpenThread RCP) gsdk-4.5.1 \u00b7 Gecko SDK 4.5.1 \u00b7 v4.5.1",
+   "release_url": "https://github.com/Warre118/px30-wallpanel/blob/firmware/openthread_rcp/latest/RELEASE_NOTES.md"
+  },
+  {
+   "stack": "thread",
+   "channel": "stable",
+   "version": "gsdk-4.4.6",
+   "description": "OpenThread RCP (Spinel, 115200 hw-flow, can return to the Gecko bootloader)",
+   "file": "px30-tyzs13_openthread_rcp_gsdk-4.4.6.gbl",
+   "url": "https://raw.githubusercontent.com/Warre118/px30-wallpanel/firmware/openthread_rcp/stable/px30-tyzs13_openthread_rcp_gsdk-4.4.6.gbl",
+   "sha256": "1e695297c18957685850659221298d5cdde531614640137230679bd6a19d4ae3",
+   "size": 108668,
+   "baudrate": 115200,
+   "bootloader_baudrate": 115200,
+   "release_summary": "Thread / Matter radio (OpenThread RCP) gsdk-4.4.6 \u00b7 Gecko SDK 4.4.6 \u00b7 v4.4.6",
+   "release_url": "https://github.com/Warre118/px30-wallpanel/blob/firmware/openthread_rcp/stable/RELEASE_NOTES.md"
+  },
+  {
+   "stack": "zigbee",
+   "channel": "latest",
+   "version": "7.5.2.0",
+   "description": "EmberZNet NCP (EZSP, 115200 hw-flow) for ZHA / Zigbee2MQTT (ember)",
+   "file": "px30-tyzs13_zigbee_ncp_7.5.2.0.gbl",
+   "url": "https://raw.githubusercontent.com/Warre118/px30-wallpanel/firmware/zigbee_ncp/latest/px30-tyzs13_zigbee_ncp_7.5.2.0.gbl",
+   "sha256": "e7513ae899ab1e43ff64a71d7ea6f8a4785a27d67e5f7e26e4fa606b5882d08a",
+   "size": 234876,
+   "baudrate": 115200,
+   "bootloader_baudrate": 115200,
+   "release_summary": "Zigbee coordinator (EmberZNet NCP) 7.5.2.0 \u00b7 Gecko SDK 4.5.1 \u00b7 v4.5.1",
+   "release_url": "https://github.com/Warre118/px30-wallpanel/blob/firmware/zigbee_ncp/latest/RELEASE_NOTES.md"
+  },
+  {
+   "stack": "zigbee",
+   "channel": "stable",
+   "version": "7.5.0.0",
+   "description": "EmberZNet NCP (EZSP, 115200 hw-flow) for ZHA / Zigbee2MQTT (ember)",
+   "file": "px30-tyzs13_zigbee_ncp_7.5.0.0.gbl",
+   "url": "https://raw.githubusercontent.com/Warre118/px30-wallpanel/firmware/zigbee_ncp/stable/px30-tyzs13_zigbee_ncp_7.5.0.0.gbl",
+   "sha256": "645e23386c4ee006b7f335a1dae164e7eb71d8f6b93d327ef4d9f869a8c5e230",
+   "size": 234460,
+   "baudrate": 115200,
+   "bootloader_baudrate": 115200,
+   "release_summary": "Zigbee coordinator (EmberZNet NCP) 7.5.0.0 \u00b7 Gecko SDK 4.4.6 \u00b7 v4.4.6",
+   "release_url": "https://github.com/Warre118/px30-wallpanel/blob/firmware/zigbee_ncp/stable/RELEASE_NOTES.md"
+  }
+ ]
+}

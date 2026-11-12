@@ -1,0 +1,32 @@
+{
+ "schema": 2,
+ "device": "px30-tyzs13",
+ "firmware": "openthread_rcp",
+ "channel": "latest",
+ "version": "gsdk-4.5.1",
+ "file": "px30-tyzs13_openthread_rcp_gsdk-4.5.1.gbl",
+ "url": "https://raw.githubusercontent.com/Warre118/px30-wallpanel/firmware/openthread_rcp/latest/px30-tyzs13_openthread_rcp_gsdk-4.5.1.gbl",
+ "sha256": "a93fd09dd52a8fe480e7d14d442c75a4296c6413f588bb2d90e147ac346804ed",
+ "md5": "a27a67cd918026c3998c8fe24c4704e4",
+ "size": 109000,
+ "baudrate": 115200,
+ "flow_control": "hardware",
+ "bootloader_baudrate": 115200,
+ "sdk": "gecko_sdk:4.5.1",
+ "description": "OpenThread RCP (Spinel, 115200 hw-flow, can return to the Gecko bootloader)",
+ "release_summary": "Thread / Matter radio (OpenThread RCP) gsdk-4.5.1 \u00b7 Gecko SDK 4.5.1 \u00b7 v4.5.1",
+ "release_url": "https://github.com/Warre118/px30-wallpanel/blob/firmware/openthread_rcp/latest/RELEASE_NOTES.md",
+ "experimental": false,
+ "source": {
+  "repo": "SiliconLabs/gecko_sdk",
+  "ref": "v4.5.1",
+  "commit": "",
+  "url": "https://github.com/SiliconLabs/gecko_sdk/releases/tag/v4.5.1"
+ },
+ "fingerprint": "8ced32febfcd00786b749f7523e3f9fc229ba818c19dc9a4d98c14fcc64bd05e",
+ "config_hash": "149b3793507bcdfc404db3293ced5ab3f688432830447db47806c199e214ea14",
+ "built": "2026-11-12T20:24:45Z",
+ "published": "2026-11-12T20:24:45Z",
+ "stack_version": "gsdk-4.5.1",
+ "revision": 1
+}

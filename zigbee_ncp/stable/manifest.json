@@ -1,0 +1,32 @@
+{
+ "schema": 2,
+ "device": "px30-tyzs13",
+ "firmware": "zigbee_ncp",
+ "channel": "stable",
+ "version": "7.5.0.0",
+ "file": "px30-tyzs13_zigbee_ncp_7.5.0.0.gbl",
+ "url": "https://raw.githubusercontent.com/Warre118/px30-wallpanel/firmware/zigbee_ncp/stable/px30-tyzs13_zigbee_ncp_7.5.0.0.gbl",
+ "sha256": "645e23386c4ee006b7f335a1dae164e7eb71d8f6b93d327ef4d9f869a8c5e230",
+ "md5": "8496f507bd4f505d356e028965aa8cfe",
+ "size": 234460,
+ "baudrate": 115200,
+ "flow_control": "hardware",
+ "bootloader_baudrate": 115200,
+ "sdk": "gecko_sdk:4.4.6",
+ "description": "EmberZNet NCP (EZSP, 115200 hw-flow) for ZHA / Zigbee2MQTT (ember)",
+ "release_summary": "Zigbee coordinator (EmberZNet NCP) 7.5.0.0 \u00b7 Gecko SDK 4.4.6 \u00b7 v4.4.6",
+ "release_url": "https://github.com/Warre118/px30-wallpanel/blob/firmware/zigbee_ncp/stable/RELEASE_NOTES.md",
+ "experimental": false,
+ "source": {
+  "repo": "SiliconLabs/gecko_sdk",
+  "ref": "v4.4.6",
+  "commit": "",
+  "url": "https://github.com/SiliconLabs/gecko_sdk/releases/tag/v4.4.6"
+ },
+ "fingerprint": "3da1efed2edf4b7bd194a9707eded2418e1d56afe2d55fd4577be7eea0cd0d4c",
+ "config_hash": "f59e0b77faa241911a2f1c19fbae227a5223a15a8f07f88c0cd4a5c7121b40e2",
+ "built": "2026-11-12T20:22:58Z",
+ "published": "2026-11-12T20:22:58Z",
+ "stack_version": "7.5.0.0",
+ "revision": 1
+}

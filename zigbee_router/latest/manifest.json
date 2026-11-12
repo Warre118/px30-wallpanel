@@ -1,0 +1,32 @@
+{
+ "schema": 2,
+ "device": "px30-tyzs13",
+ "firmware": "zigbee_router",
+ "channel": "latest",
+ "version": "7.5.2.0",
+ "file": "px30-tyzs13_zigbee_router_7.5.2.0.gbl",
+ "url": "https://raw.githubusercontent.com/Warre118/px30-wallpanel/firmware/zigbee_router/latest/px30-tyzs13_zigbee_router_7.5.2.0.gbl",
+ "sha256": "c4e04453ae6cdac661515f02c33fc6aeee1f947c0eb38e07c180ea4bd1e1953a",
+ "md5": "6c6536117fd20c6d2216a8f5046f8839",
+ "size": 245768,
+ "baudrate": 115200,
+ "flow_control": "hardware",
+ "bootloader_baudrate": 115200,
+ "sdk": "gecko_sdk:4.5.1",
+ "description": "Zigbee router (joins an open network by itself; CLI on the UART, 'bootloader reboot' for updates)",
+ "release_summary": "Zigbee router 7.5.2.0 \u00b7 Gecko SDK 4.5.1 \u00b7 v4.5.1 \u00b7 experimental",
+ "release_url": "https://github.com/Warre118/px30-wallpanel/blob/firmware/zigbee_router/latest/RELEASE_NOTES.md",
+ "experimental": true,
+ "source": {
+  "repo": "SiliconLabs/gecko_sdk",
+  "ref": "v4.5.1",
+  "commit": "",
+  "url": "https://github.com/SiliconLabs/gecko_sdk/releases/tag/v4.5.1"
+ },
+ "fingerprint": "3a08792381bc867aa01c17f66354f759a4dd36c04f3df563ccc643f112ae716c",
+ "config_hash": "f50b88b3924a32115c58f46c24516875867fa717c5e473d61d5c953c9b478f0a",
+ "built": "2026-11-12T20:26:24Z",
+ "published": "2026-11-12T20:26:24Z",
+ "stack_version": "7.5.2.0",
+ "revision": 1
+}
