@@ -122,9 +122,9 @@ mmdebstrap \
     # files from /mnt/c arrive as 0777 and sync-in also applies that mode to
     # existing directories (/, /etc, /usr ...) -> normalise everything from the overlay
     # (owner too: sync-in puts host uid 1000 on /, /usr ... = the kiosk user!)
-    (cd '"'$OVERLAY'"' && find . -type d) | while IFS= read -r d; do chown 0:0 "$R/$d"; chmod 755 "$R/$d"; done
+    (cd '"'$OVERLAY'"' && find . -name __pycache__ -prune -o -type d -print) | while IFS= read -r d; do chown 0:0 "$R/$d"; chmod 755 "$R/$d"; done
     chown 0:0 "$R" "$R/usr" "$R/usr/lib"
-    (cd '"'$OVERLAY'"' && find . -type f) | while IFS= read -r f; do chown 0:0 "$R/$f"; chmod 644 "$R/$f"; done
+    (cd '"'$OVERLAY'"' && find . -name __pycache__ -prune -o -type f -print) | while IFS= read -r f; do chown 0:0 "$R/$f"; chmod 644 "$R/$f"; done
     [ -d "$R/var/lib/iwd" ] && chown -R 0:0 "$R/var/lib/iwd" && chmod 700 "$R/var/lib/iwd" && chmod 600 "$R"/var/lib/iwd/* 2>/dev/null || true
     chown 0:0 "$R/etc/sudoers.d/30-px30-agent"
     chmod 440 "$R/etc/sudoers.d/10-admin" "$R/etc/sudoers.d/20-kiosk-splash" "$R/etc/sudoers.d/30-px30-agent"
