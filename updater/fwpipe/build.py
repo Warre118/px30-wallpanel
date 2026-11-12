@@ -6,7 +6,7 @@ toolchains and SDKs from fwpipe.toolset (downloaded on first use).
   gsdk  this repo's zigbee/ scripts for the TYZS13 (Gecko SDK 4.x),
         through updater/gsdk/build.sh
 """
-import glob, os, shutil
+import glob, os, shutil, sys
 from dataclasses import dataclass, field
 
 import yaml
@@ -157,10 +157,20 @@ class GsdkBackend:
         out = os.path.join(work, "out")
         shutil.rmtree(out, ignore_errors=True)
         os.makedirs(out)
+        silabs = os.environ.get("FWPIPE_SILABS", "/opt/silabs")
         env = dict(os.environ, SDK=sdk, GCC_DIR=gcc, BAUD=str(spec.get("baudrate", 115200)),
-                   T=os.environ.get("FWPIPE_SILABS", "/opt/silabs"),
+                   T=silabs,
                    SLC_TOOL_PATH=":".join(Toolset.adapter_packs()),
                    ZIGBEE_DIR=os.path.join(self.app_root, "zigbee"), TMPDIR=work)
+        # slc runs the SDK's Jinja template generators with `python3` from PATH:
+        # that must be the adapter pack's (it has jinja2), not Debian's or the
+        # venv's. The zigbee/ scripts call slc directly, past updater/bin/slc.
+        pack_py = os.path.join(silabs, "python", "bin")
+        if os.path.isdir(pack_py):
+            env["PATH"] = pack_py + os.pathsep + env.get("PATH", "")
+        for k in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"):
+            env.pop(k, None)
+        env.setdefault("PYTHON", sys.executable)   # mkgbl.py needs pygbl from fwpipe's venv
         if spec.get("router"):
             env["ROUTER"] = "1"
         run(["bash", os.path.join(self.app_root, "updater/gsdk/build.sh"), spec["target"], out],
