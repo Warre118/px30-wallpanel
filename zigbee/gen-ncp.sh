@@ -4,17 +4,21 @@
 # Extra component: bootloader_interface -> EZSP launchStandaloneBootloader werkt
 # (needed to go back to Thread with universal-silabs-flasher).
 set -euo pipefail
-T="$HOME/px30-build/silabs"
-export PATH="$T/slc_cli:$T/arm-gnu-toolchain-12.2.rel1-x86_64-arm-none-eabi/bin:$T/commander/commander-cli:$PATH"
+# Overridable (updater/gsdk/build.sh sets these in the build container):
+#   T toolchain folder, SDK Gecko SDK, GCC_DIR Arm GCC, OUT project folder,
+#   SLC_TOOL_PATH python adapter pack (slc-cli 6 from the update site needs it)
+T="${T:-$HOME/px30-build/silabs}"
+GCC_DIR="${GCC_DIR:-$T/arm-gnu-toolchain-12.2.rel1-x86_64-arm-none-eabi}"
+export PATH="$T/slc_cli:$GCC_DIR/bin:$T/commander/commander-cli:$PATH"
 export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
 export PATH="$JAVA_HOME/bin:$PATH"
-SDK="$T/gecko_sdk"
-OUT="$HOME/px30-build/zigbee/ncp-uart-hw"
+SDK="${SDK:-$T/gecko_sdk}"
+OUT="${OUT:-$HOME/px30-build/zigbee/ncp-uart-hw}"
 cd "$T"
-slc configuration --sdk "$SDK" --gcc-toolchain "$T/arm-gnu-toolchain-12.2.rel1-x86_64-arm-none-eabi" >/dev/null
+slc configuration --sdk "$SDK" --gcc-toolchain "$GCC_DIR" >/dev/null
 slc signature trust --sdk "$SDK" >/dev/null || true
 rm -rf "$OUT"; mkdir -p "$OUT"
 slc generate "$SDK/protocol/zigbee/app/ncp/sample-app/ncp-uart-hw/ncp-uart-hw.slcp" \
   -np -d "$OUT" -name ncp-uart-hw-tyzs13 -o makefile \
-  --with "EFR32MG13P732F512GM48,bootloader_interface" 2>&1 | tail -20
+  --with "EFR32MG13P732F512GM48,bootloader_interface" ${SLC_TOOL_PATH:+--tool-path="$SLC_TOOL_PATH"} 2>&1 | tail -20
 ls "$OUT" "$OUT/config"

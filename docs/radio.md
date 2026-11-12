@@ -22,6 +22,7 @@ Commander (`zigbee/fetch-toolchain.sh`):
 |---|---|
 | `zigbee/gen-ot-rcp.sh` + `zigbee/build-ot-rcp.sh` | OpenThread RCP, 115200 baud, hardware flow control, **with return to the bootloader** (`-btl`) |
 | `zigbee/gen-ncp.sh` + `zigbee/build-ncp.sh` | EmberZNet 7.5.0.0 NCP (EZSP v13), same pinout |
+| `zigbee/gen-router.sh` + `zigbee/build-router.sh` | stand-alone Zigbee router (experimental), same pinout, **with `bootloader reboot` on its CLI** |
 | `zigbee/build-otbr.sh` | `otbr-agent` + `ot-ctl` for arm64, from the same OpenThread commit as the RCP |
 
 Details:
@@ -30,11 +31,26 @@ Details:
   `OPENTHREAD_CONFIG_PLATFORM_BOOTLOADER_MODE_ENABLE`, which is 0 by default in
   GSDK 4.4.6. Without it, the RCP ignores the Spinel "reset to bootloader" command.
 - The build scripts check in the disassembly that the bootloader return is there.
+- The router (`zigbee/router/`) is the SDK's ZigbeeMinimal sample with a CLI on
+  the UART (prompt `tyzs13_router>`) and Nabu Casa's router bootloader commands
+  ported to GSDK 4.x (`router_bootloader_cli.c`): `bootloader info` and
+  `bootloader reboot`. `universal-silabs-flasher` recognises it with the CLI
+  `version` command and uses `bootloader reboot`, so a router can be updated or
+  replaced without SWD. `app.c` joins an open network by itself (network
+  steering at start and every 30 s while it has none). `build-router.sh` checks
+  in the disassembly and the CLI table that `bootloader reboot` calls
+  `bootloader_rebootAndInstall`. Built and checked; not yet tested on the panel.
 - NVM3 sits at the same place (0x77000–0x7FFFF) in both images, so switching
   stacks keeps both stacks' keys.
 - The firmware lands in `${PX30_OUT:-~/px30-out}/zigbee/` and, for the image,
   in `RADIO_DIST`. `rootfs/build-rootfs.sh` puts it in
   `/usr/share/px30-radio/firmware/` with a `catalog.json`.
+- The scripts take their paths from the environment (`T`, `SDK`, `GCC_DIR`,
+  `OUT`, `DIST`, `GSDK_LABEL`, `SLC_TOOL_PATH`, `MKGBL`; the defaults are the
+  WSL setup above) and work with slc-cli 5 and 6. That is how the update
+  pipeline builds them in a container for other Gecko SDK versions:
+  [updater/README.md](../updater/README.md). Gecko SDK 4.5.1 (EmberZNet
+  7.5.2.0) still supports the MG13.
 
 ## First flash: SWD (once)
 
@@ -113,24 +129,36 @@ main flash and tokens. Check afterwards that the bootloader is still there.
 ## Switching stacks: `px30-radio`
 
 Tested on the hardware: `status`, `probe`, `use thread` and `use off`.
-**Flashing (`switch`, `use --flash`) does not work yet.**
+Flashing (`switch`, `use --flash`) failed with the old flasher arguments; it now
+uses the `universal-silabs-flasher` 1.3 command line (`--probe-methods`,
+`flash --firmware`) and has to be tested on the hardware again.
 
 ```
 px30-radio status                         stack, channel, firmware, service
 px30-radio probe                          ask the chip which firmware it runs (~11 s)
-px30-radio use thread|zigbee|off [--flash] [--yes]
+px30-radio use thread|zigbee|router|off [--flash] [--yes]
                                           choose the stack (flashes only with --flash)
 px30-radio list                           available firmware (catalog)
-px30-radio switch thread|zigbee [stable|latest] [--yes] [--force]
+px30-radio switch thread|zigbee|router [stable|latest|beta] [--yes] [--force]
 px30-radio backup                         Thread: save the active dataset to /data/radio/backup
 px30-radio apply                          (at boot) run only the chosen stack's service
 ```
 
 - **Stacks:**
   - `thread` = OpenThread RCP + `otbr-agent`;
-  - `zigbee` = EmberZNet NCP + `px30-zigbee-bridge`.
-- **Channels:** `stable` / `latest`, from `/usr/share/px30-radio/catalog.json`.
-  A newer `/data/radio/catalog.json` takes precedence.
+  - `zigbee` = EmberZNet NCP + `px30-zigbee-bridge`;
+  - `router` = the stand-alone Zigbee router (no service on the panel: the
+    chip routes by itself and joins an open network; experimental).
+- **Channels:** `stable` / `latest` / `beta`, from
+  `/usr/share/px30-radio/catalog.json`. A downloaded `/data/radio/catalog.json`
+  takes precedence. `px30-update radio sync` downloads it, with the firmware it
+  lists, from the URL in `update.radio_catalog_url` of
+  `/data/px30-agent/config.json`; the agent does that on every update check.
+  The image only ships `stable` and `latest`; `beta` exists when one is
+  published. The catalog and its firmware come from the `firmware` branch of
+  this repository and are signed (ECDSA P-256, public key
+  `/etc/px30/radio-update.pub`); each channel has `RELEASE_NOTES.md`. See
+  [updater/README.md](../updater/README.md).
 - **Warnings before acting** (type the word to confirm, or pass `--yes`):
   - a stack switch loses the network, and all devices must be paired again;
   - an update or downgrade within a stack risks it.

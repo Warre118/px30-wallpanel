@@ -1,0 +1,83 @@
+# fwpipe configuration: which firmware is built for which device, and what each
+# channel follows. See updater/README.md.
+
+publish:
+  # Defaults for every device; each device names its own repository below.
+  # Firmware goes to its own branch (no source code in it), so the code history
+  # of the repository does not fill up with firmware binaries.
+  branch: firmware
+  keep_archived: 10              # archived builds kept per firmware/channel
+  republish_same_version: false  # true: also publish rebuilds that carry the same version
+  # ECDSA P-256 private key (PEM) that signs every manifest.json and catalog.json.
+  # Also settable with FWPIPE_SIGNING_KEY. See updater/README.md, "Signing".
+  signing_key: /keys/radio-update.pem
+
+check_interval_h: 12
+
+# notify:
+#   webhook: http://homeassistant.local:8123/api/webhook/<id>   # POSTed after changes/failures
+
+upstream:
+  sfb_repo: NabuCasa/silabs-firmware-builder   # builder + manifests for series 2 chips
+  gsdk_repo: SiliconLabs/gecko_sdk             # SDK for series 1 chips
+
+devices:
+  # ---------------------------------------------------------------------------
+  # TubesZB EFR32 MGM210 2022 (MGM210PA32JIA2, series 2). Built with Nabu Casa's
+  # builder: the upstream manifest of the Yellow (same module) + our overlay.
+  tubeszb-mgm210:
+    title: TubesZB MGM210 2022
+    backend: sfb
+    publish: {repo: Warre118/TubesZB_MGM210_Warre_Edition}
+    channels:
+      stable: {source: release}                 # newest full release of Nabu Casa's builder
+      beta:   {source: prerelease}              # newest pre-release, when newer than the release
+      latest: {source: branch, branch: main}    # head of main, as Nabu Casa builds it
+      # (sdk: newest would take the newest SDK in its image instead of the one in
+      # the manifest: a combination upstream does not build, see README)
+    firmware:
+      zigbee_ncp:
+        base: manifests/nabucasa/yellow/yellow_zigbee_ncp.yaml
+        overlay: devices/tubeszb-mgm210/zigbee_ncp.yaml
+        description: EmberZNet NCP (EZSP) for ZHA / Zigbee2MQTT, 115200 baud, no hardware flow control
+      openthread_rcp:
+        base: manifests/nabucasa/yellow/yellow_openthread_rcp.yaml
+        overlay: devices/tubeszb-mgm210/openthread_rcp.yaml
+        description: OpenThread RCP (Thread / Matter border router radio), 115200 baud, no flow control
+      zigbee_router:
+        # Stand-alone Zigbee router (repeater). Derived from the ZBT-2 router,
+        # which is an MG24 board with LEDs and an accelerometer; the overlay
+        # strips those. NOT built yet: turn on after a first manual test build
+        # (fwpipe run --device tubeszb-mgm210 --firmware zigbee_router).
+        enabled: false
+        experimental: true
+        base: manifests/nabucasa/zbt2/zbt2_router.yaml
+        overlay: devices/tubeszb-mgm210/zigbee_router.yaml
+        description: Zigbee router (repeater, no host needed); back to the bootloader with the ESP32 button
+    outputs: [efr32_flasher]
+
+  # ---------------------------------------------------------------------------
+  # PX30 wall panel radio: Tuya TYZS13 (EFR32MG13P732F512GM48, series 1).
+  # Series 1 only exists in the Gecko SDK 4.x line; built with this repo's
+  # zigbee/ scripts (pinout patch + check that the image can return to the
+  # Gecko bootloader).
+  px30-tyzs13:
+    title: PX30 wall panel (TYZS13)
+    backend: gsdk
+    publish: {repo: Warre118/px30-wallpanel}
+    channels:
+      stable: {source: pinned, version: v4.4.6}       # the build tested on the panel; promote by hand
+      latest: {source: release, series: "4."}         # highest Gecko SDK 4.x release
+      beta:   {source: prerelease, series: "4."}      # only when Silicon Labs publishes a pre-release
+    firmware:
+      zigbee_ncp:
+        target: ncp
+        description: EmberZNet NCP (EZSP, 115200 hw-flow) for ZHA / Zigbee2MQTT (ember)
+      openthread_rcp:
+        target: ot-rcp
+        description: OpenThread RCP (Spinel, 115200 hw-flow, can return to the Gecko bootloader)
+      zigbee_router:
+        target: router
+        experimental: true
+        description: Zigbee router (joins an open network by itself; CLI on the UART, 'bootloader reboot' for updates)
+    outputs: [px30_catalog]

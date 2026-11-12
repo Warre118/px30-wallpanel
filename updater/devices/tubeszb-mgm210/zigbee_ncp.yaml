@@ -1,0 +1,41 @@
+# TubesZB EFR32 MGM210 2022 (eth_usb / PoE) - EmberZNet NCP.
+# Overlay on manifests/nabucasa/yellow/yellow_zigbee_ncp.yaml (same MGM210 module).
+# Format: updater/fwpipe/overlay.py.
+#
+# What differs from the Yellow (sources: TubesZB schematic "MGM210P Olimex Shield
+# 2022", tube0013's own mgm21-2023 manifest, the ESPHome config):
+#  - UART TX = PA06, RX = PA05 (swapped on the Yellow)
+#  - the ESP32 has no RTS/CTS lines to the EFR32 -> flow control off
+#  - no activity LED, packet trace (PTI) off
+# Yellow firmware does NOT work on the TubesZB.
+
+set:
+  name: TubesZB MGM210 2022 Zigbee
+  gbl:
+    fw_variant: sw_flow
+  # SLC validates before c_defines are patched, so it is needed here as well
+  configuration:
+    SL_IOSTREAM_USART_VCOM_FLOW_CONTROL_TYPE: usartHwFlowControlNone
+
+remove_sdk_extensions: [board_activity]
+remove_components: [simple_led, board_activity_led]
+remove_defines:
+  - SL_SIMPLE_LED_BOARD_ACTIVITY_.*
+  - BOARD_ACTIVITY_LED_INSTANCE
+
+set_matching:
+  SL_IOSTREAM_USART_VCOM_BAUDRATE: 115200
+  SL_IOSTREAM_USART_VCOM_FLOW_CONTROL_TYPE: usartHwFlowControlNone
+
+pins:
+  SL_IOSTREAM_USART_VCOM_:
+    TX: PA06
+    RX: PA05
+    # on the board but not connected to the ESP32; unused without flow control
+    CTS: PC01
+    RTS: PD02
+
+set_defines:
+  XNCP_MFG_MANUF_NAME: '"TubesZB"'
+  XNCP_MFG_BOARD_NAME: '"TubesZB MGM210 2022 (custom)"'
+  SL_RAIL_UTIL_PTI_MODE: RAIL_PTI_MODE_DISABLED

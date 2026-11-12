@@ -1,49 +1,184 @@
-#!/bin/sh
-# px30-update: firmware updates for the PX30 panel and its radio module.
-#
-# *** NOT IMPLEMENTED YET *** - this is the interface px30-agent calls (via
-# sudo, exact arguments only, see 30-px30-agent.sudoers). Every command
-# currently exits 2 ("not implemented") without touching anything.
-#
-#   px30-update system latest
-#       1. read repo from /data/px30-agent/config.json (.update.repo)
-#       2. GitHub Releases API: newest release with tag prefix "v" and an
-#          asset px30-rootfs-<tag>.ext4.zst + SHA256SUMS (+ signature, TBD)
-#       3. download to /data/px30-update/ (space check first), verify sha256
-#          (and signature: minisign/signify public key baked into the image)
-#       4. write to the INACTIVE slot (rootfs_a/rootfs_b), resize2fs
-#       5. px30-state: slot=<new> fallback=<old> tries=0, then reboot;
-#          px30-boot-ok confirms the new slot, the initramfs falls back after
-#          3 failed boots
-#       6. write /etc/px30-release in the image itself (VERSION=<tag>)
-#
-#   (radio module: moved to px30-radio switch STACK CHANNEL; px30-update will
-#   only download newer module firmware + catalog.json into /data/radio)
-#   px30-update module thread|zigbee  [old design, kept for reference]
-#       1. newest release with tag prefix "module-" and an asset
-#          *-<stack>-*.gbl (e.g. tyzs13-thread-rcp-<ver>.gbl,
-#          tyzs13-zigbee-ncp-<ver>.gbl) + sha256
-#       2. stop otbr-agent (and the zigbee serial bridge if running)
-#       3. universal-silabs-flasher --device /dev/ttyThread flash --firmware <gbl>
-#          (bootloader without RTS/CTS, app with RTS/CTS; see BEVINDINGEN 7c)
-#          PRECONDITION: the running firmware must support entering the Gecko
-#          bootloader (current first RCP build does NOT -> SWD once)
-#       4. thread: enable+start otbr-agent, disable zigbee bridge
-#          zigbee: disable otbr-agent, enable the serial bridge for ZHA/Z2M
-#       5. write /data/px30-agent/module.json:
-#          {"stack": "<stack>", "version": "<tag>", "flashed": "<iso date>"}
-#
-# Exit codes: 0 ok, 1 error, 2 not implemented.
-set -eu
-[ "$(id -u)" = 0 ] || exec sudo -n "$0" "$@"
+#!/usr/bin/python3
+"""px30-update: firmware updates for the PX30 panel and its radio module.
 
-case "${1:-} ${2:-}" in
-"system latest")
-	echo "px30-update $*: not implemented yet" >&2
-	exit 2
-	;;
-*)
-	sed -n '2,36p' "$0" >&2
-	exit 1
-	;;
-esac
+This is the interface px30-agent calls (via sudo, exact arguments only, see
+30-px30-agent.sudoers).
+
+  px30-update radio sync
+      Download the radio firmware catalog and the firmware it lists into
+      /data/radio (catalog.json + firmware/). px30-radio prefers that catalog
+      over the one in the image, so `px30-radio list` / `switch` and the Home
+      Assistant update entity then see the published builds. Nothing is
+      flashed. The catalog URL is .update.radio_catalog_url in
+      /data/px30-agent/config.json; without that key the catalog this repo's
+      update pipeline publishes (DEFAULT_CATALOG), "" turns it off.
+      (written by the update pipeline, see updater/README.md).
+        - https only; firmware URLs must be on the catalog's own host
+        - every file is checked against the sha256 in the catalog
+        - if /etc/px30/radio-update.pub exists (ECDSA P-256 public key, PEM; the
+          image ships it), the
+          catalog must carry a valid signature (catalog.json.sig) or nothing
+          is changed
+      Prints one JSON line: {"changed": bool, "entries": n, "downloaded": [...]}.
+
+  px30-update system latest       *** NOT IMPLEMENTED YET *** (exits 2)
+      1. read repo from /data/px30-agent/config.json (.update.repo)
+      2. GitHub Releases API: newest release with tag prefix "v" and an
+         asset px30-rootfs-<tag>.ext4.zst + SHA256SUMS (+ signature, TBD)
+      3. download to /data/px30-update/ (space check first), verify sha256
+         (and signature: public key baked into the image)
+      4. write to the INACTIVE slot (rootfs_a/rootfs_b), resize2fs
+      5. px30-state: slot=<new> fallback=<old> tries=0, then reboot;
+         px30-boot-ok confirms the new slot, the initramfs falls back after
+         3 failed boots
+      6. write /etc/px30-release in the image itself (VERSION=<tag>)
+
+Exit codes: 0 ok, 1 error, 2 not implemented / not configured.
+"""
+import base64, hashlib, json, os, re, subprocess, sys, tempfile, urllib.error, urllib.parse, urllib.request
+
+AGENT_CONFIG = "/data/px30-agent/config.json"
+RADIO_DATA = "/data/radio"
+PUBKEY = "/etc/px30/radio-update.pub"
+DEFAULT_CATALOG = "https://raw.githubusercontent.com/Warre118/px30-wallpanel/firmware/catalog.json"
+MAX_CATALOG = 256 * 1024
+MAX_FIRMWARE = 2 * 1024 * 1024          # the module has 512 KB of flash
+FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,120}\.gbl")
+STACKS = ("thread", "zigbee")
+CHANNELS = ("stable", "latest", "beta")
+ALLOW_HTTP = False                       # tests only
+
+
+def die(msg, rc=1):
+    print(f"px30-update: {msg}", file=sys.stderr)
+    sys.exit(rc)
+
+
+def fetch(url, limit):
+    scheme = urllib.parse.urlsplit(url).scheme
+    if scheme != "https" and not (ALLOW_HTTP and scheme == "http"):
+        raise ValueError(f"refusing {url}: https only")
+    req = urllib.request.Request(url, headers={"User-Agent": "px30-update"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        data = r.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError(f"{url}: larger than {limit} bytes")
+    return data
+
+
+def verify_signature(data, sig_b64):
+    """ECDSA P-256 / SHA-256 (DER signature, base64) over the catalog bytes,
+    checked with openssl (in the image)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        d, s = os.path.join(tmp, "data"), os.path.join(tmp, "sig")
+        with open(d, "wb") as f:
+            f.write(data)
+        with open(s, "wb") as f:
+            f.write(base64.b64decode(sig_b64, validate=True))
+        r = subprocess.run(["openssl", "dgst", "-sha256", "-verify", PUBKEY, "-signature", s, d],
+                           capture_output=True, text=True)
+        return r.returncode == 0
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for b in iter(lambda: f.read(65536), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def write_atomic(path, data, mode=0o644):
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def radio_sync():
+    try:
+        with open(AGENT_CONFIG) as f:
+            url = str((json.load(f).get("update") or {}).get("radio_catalog_url", DEFAULT_CATALOG) or "").strip()
+    except (OSError, ValueError):
+        url = DEFAULT_CATALOG
+    if not url:
+        die(f"no update.radio_catalog_url in {AGENT_CONFIG}", 2)
+    try:
+        raw = fetch(url, MAX_CATALOG)
+        if os.path.exists(PUBKEY):
+            sig = fetch(url + ".sig", 4096).decode("ascii", "replace").strip()
+            if not verify_signature(raw, sig):
+                die("catalog signature does not match " + PUBKEY)
+        cat = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError, urllib.error.URLError) as e:
+        die(f"catalog: {e}")
+    host = urllib.parse.urlsplit(url).netloc
+    entries, todo = [], {}
+    for e in cat.get("firmware") if isinstance(cat, dict) and isinstance(cat.get("firmware"), list) else []:
+        if not isinstance(e, dict) or e.get("stack") not in STACKS or e.get("channel") not in CHANNELS:
+            continue                      # e.g. a router build: this px30-radio cannot run it
+        name, digest = str(e.get("file", "")), str(e.get("sha256", "")).lower()
+        src = urllib.parse.urljoin(url, str(e.get("url") or name))
+        if not FILE_RE.fullmatch(name) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            die(f"catalog entry {e.get('stack')}/{e.get('channel')}: bad file name or sha256")
+        if urllib.parse.urlsplit(src).netloc != host:
+            die(f"catalog entry {name}: firmware is on another host than the catalog")
+        if todo.setdefault(name, (src, digest))[1] != digest:
+            die(f"catalog: {name} listed with two different checksums")
+        entries.append({"stack": e["stack"], "channel": e["channel"], "version": str(e.get("version", ""))[:64],
+                        "description": str(e.get("description", ""))[:200], "file": name, "sha256": digest,
+                        "baudrate": int(e.get("baudrate") or 115200),
+                        "bootloader_baudrate": int(e.get("bootloader_baudrate") or 115200)})
+    if not entries:
+        die("catalog lists no firmware for this panel")
+
+    fwdir = os.path.join(RADIO_DATA, "firmware")
+    os.makedirs(fwdir, mode=0o755, exist_ok=True)
+    downloaded = []
+    for name, (src, digest) in sorted(todo.items()):
+        path = os.path.join(fwdir, name)
+        if os.path.exists(path) and sha256(path) == digest:
+            continue
+        try:
+            data = fetch(src, MAX_FIRMWARE)
+        except (OSError, ValueError, urllib.error.URLError) as e:
+            die(f"{name}: {e}")
+        if hashlib.sha256(data).hexdigest() != digest:
+            die(f"{name}: checksum does not match the catalog")
+        write_atomic(path, data)
+        downloaded.append(name)
+
+    new = json.dumps({"_comment": "Downloaded by px30-update radio sync; overrides the catalog in the image.",
+                      "source": url, "firmware": entries}, indent=1).encode() + b"\n"
+    cat_path = os.path.join(RADIO_DATA, "catalog.json")
+    try:
+        with open(cat_path, "rb") as f:
+            changed = f.read() != new
+    except OSError:
+        changed = True
+    if changed:
+        write_atomic(cat_path, new)
+    for old in os.listdir(fwdir):          # builds no channel points at any more
+        if old not in todo:
+            os.remove(os.path.join(fwdir, old))
+    print(json.dumps({"changed": changed or bool(downloaded), "entries": len(entries),
+                      "downloaded": downloaded}))
+
+
+def main(a):
+    if os.geteuid() != 0:
+        os.execvp("sudo", ["sudo", "-n", sys.argv[0]] + a)
+    if a == ["radio", "sync"]:
+        radio_sync()
+    elif a == ["system", "latest"]:
+        die("system latest: not implemented yet", 2)
+    else:
+        print(__doc__, file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

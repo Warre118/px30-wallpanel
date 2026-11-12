@@ -116,7 +116,7 @@ Without unlocking, the action is refused, and the *Last action* sensor says why.
 **Selects:**
 
 - Radio module (`thread` / `zigbee`; switching erases the network!);
-- Radio module channel (`stable` / `latest`).
+- Radio module channel (`stable` / `latest` / `beta`).
 
 **Binary sensor:** Presence (occupancy).
 
@@ -142,9 +142,20 @@ Disabled by default: Load, Kernel, Agent version, Proximity (raw).
 - *Firmware* (the system);
 - *Radio module firmware*.
 
-The check against GitHub releases runs every 6 hours and on "Check for
-updates". Installing the system from GitHub is **not implemented yet**
-(`px30-update` is a stub). Use `tools/px30-ota.sh` from a PC.
+The check runs every 6 hours and on "Check for updates".
+
+- *Firmware* is compared with the GitHub releases of `update.repo`. Installing
+  the system from GitHub is **not implemented yet** (`px30-update system` is a
+  stub). Use `tools/px30-ota.sh` from a PC.
+- *Radio module firmware* is compared with the radio firmware catalog: the
+  build of the selected channel for the stack on the chip. With
+  `update.radio_catalog_url` set, the check first runs `px30-update radio sync`,
+  which downloads the published catalog and firmware into `/data/radio`
+  (checksums verified; a signature too when `/etc/px30/radio-update.pub`
+  exists). Without it, only the firmware in the image is known. Installing
+  goes through `px30-radio switch` and **does not work yet**
+  ([radio.md](radio.md)). The pipeline that publishes the catalog:
+  [updater/README.md](../updater/README.md).
 
 ## Security notes
 
@@ -159,8 +170,11 @@ updates". Installing the system from GitHub is **not implemented yet**
   `px30-agent`), as Zigbee2MQTT does.
 - Anyone with admin rights in HA can wipe the panel. That is intended. The unlock
   switch only protects against misclicks and automation mistakes.
-- Future update downloads must be signed (a public key in the image), not only
-  checked against a sha256 from the same release.
+- Future system update downloads must be signed (a public key in the image),
+  not only checked against a sha256 from the same release. The radio firmware
+  catalog and manifests are signed (ECDSA P-256); the public key is in the image
+  as `/etc/px30/radio-update.pub`, and an unsigned or altered catalog is
+  refused.
 
 ## Development
 

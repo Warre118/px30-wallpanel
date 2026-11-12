@@ -57,6 +57,8 @@ CONFIG_PATH = DATA_DIR + "/config.json"
 SETTINGS_PATH = DATA_DIR + "/settings.json"
 DISPLAY_PATH = DATA_DIR + "/display.json"
 MODULE_PATH = "/data/radio/state.json"        # written by px30-radio
+# radio firmware catalogs, as px30-radio reads them: the downloaded one wins
+RADIO_CATALOGS = ("/usr/share/px30-radio/catalog.json", "/data/radio/catalog.json")
 DISPLAY_STATE_PATH = "/run/px30-display/state.json"
 RELEASE_FILE = "/etc/px30-release"
 OTBR_REST = "http://127.0.0.1:8081"
@@ -88,6 +90,10 @@ DEFAULT_CONFIG = {
         "firmware_tag_prefix": "v",
         "module_tag_prefix": "module-",
         "github_token": "",
+        # radio module firmware: catalog.json published by the update pipeline
+        # (updater/), fetched by `px30-update radio sync`; signed, checked with
+        # /etc/px30/radio-update.pub. "" = only the firmware shipped in the image.
+        "radio_catalog_url": "https://raw.githubusercontent.com/Warre118/px30-wallpanel/firmware/catalog.json",
     },
 }
 
@@ -117,9 +123,9 @@ NUMBERS = {
                       icon="mdi:signal-distance-variant", category="config", mode="box"),
 }
 
-MODULE_STACKS = ("thread", "zigbee")
+MODULE_STACKS = ("thread", "zigbee", "router")   # router: stand-alone Zigbee repeater
 MODULE_OPTIONS = MODULE_STACKS + ("off",)     # off: radio unused, no service
-MODULE_CHANNELS = ("stable", "latest")
+MODULE_CHANNELS = ("stable", "latest", "beta")
 
 # The ONLY commands this agent can run with privileges. Keys are internal
 # names; values are complete argv lists (no payload ever ends up in here).
@@ -146,6 +152,8 @@ COMMANDS = {
     "display_wake":    [SYSTEMCTL, "kill", "-s", "USR1", "proximity-wake.service"],
     "display_sleep":   [SYSTEMCTL, "kill", "-s", "USR2", "proximity-wake.service"],
     "fw_install":      [UPDATE, "system", "latest"],
+    # download the published radio firmware catalog + files (nothing is flashed)
+    "radio_sync":      [UPDATE, "radio", "sync"],
     # radio module: stack + channel; px30-radio shows the warnings, the agent
     # only runs it while "Unlock dangerous actions" is on
     **{f"radio_{st}_{ch}": [RADIO, "switch", st, ch, "--yes"]
@@ -344,6 +352,28 @@ class Agent:
     def module_channel(self):
         ch = self.settings.get("module_channel")
         return ch if ch in MODULE_CHANNELS else "stable"
+
+    def module_catalog_entry(self, stack, channel):
+        """The catalog entry px30-radio would flash for stack/channel (None if none)."""
+        found = None
+        for path in RADIO_CATALOGS:
+            for e in (read_json(path, {}) or {}).get("firmware", []):
+                if isinstance(e, dict) and e.get("stack") == stack and e.get("channel") == channel \
+                        and e.get("version"):
+                    found = e
+        return found
+
+    def refresh_module_latest(self):
+        """What the update entity offers: the chosen channel's build for the stack on the chip."""
+        stack, _, _ = self.module_info()
+        channel = self.module_channel()
+        e = self.module_catalog_entry(stack, channel)
+        # release notes: the summary line and the RELEASE_NOTES.md link fwpipe publishes
+        url = str((e or {}).get("release_url") or "")
+        self.mod_latest = {"tag": str(e["version"])[:64],
+                           "url": url if url.startswith("https://") else "",
+                           "title": f"TYZS13 {stack} firmware ({channel})",
+                           "summary": str(e.get("release_summary") or e.get("description") or "")[:255]}             if e else None
 
     def ip_address(self, iface):
         try:
@@ -548,7 +578,7 @@ class Agent:
             command_topic=cmd("module_stack"),
             state_topic=st, value_template="{{ value_json.module_stack }}",
             options=list(MODULE_OPTIONS), icon="mdi:zigbee", entity_category="config")
-        add("select", "module_channel", name="Radio module channel (stable/latest)",
+        add("select", "module_channel", name="Radio module channel (stable/latest/beta)",
             command_topic=cmd("module_channel"),
             state_topic=st, value_template="{{ value_json.module_channel }}",
             options=list(MODULE_CHANNELS), icon="mdi:source-branch", entity_category="config")
@@ -614,8 +644,10 @@ class Agent:
         def payload(installed, latest, busy, title):
             p = {"installed_version": installed, "in_progress": busy, "title": title}
             if latest:
-                p.update(latest_version=latest["tag"], release_url=latest["url"],
-                         release_summary=latest["summary"], title=latest["title"] or title)
+                p.update(latest_version=latest["tag"], release_summary=latest["summary"],
+                         title=latest["title"] or title)
+                if latest["url"]:
+                    p["release_url"] = latest["url"]
             else:
                 p["latest_version"] = installed
             return p
@@ -628,41 +660,46 @@ class Agent:
     # ------------------------------------------------------- update check
     def check_updates(self):
         u = self.cfg["update"]
+        notes = []
+        # radio module: fetch the published catalog (if configured), then compare
+        # the chosen channel with what is on the chip
+        if u.get("radio_catalog_url"):
+            rc, _ = self.run_priv("radio_sync", timeout=300)
+            if rc != 0:
+                notes.append(f"radio catalog download failed (rc {rc})")
+        self.refresh_module_latest()
+        # system: GitHub releases
         repo = u["repo"]
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) or repo.startswith("OWNER/"):
-            self.set_last("update check: no repository configured")
-            return
-        url = f"https://api.github.com/repos/{repo}/releases?per_page=30"
-        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-                   "User-Agent": f"px30-agent/{AGENT_VERSION}"}
-        if u.get("github_token"):
-            headers["Authorization"] = f'Bearer {u["github_token"]}'
-        try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as r:
-                releases = json.loads(r.read().decode())
-        except (OSError, ValueError, urllib.error.URLError) as e:
-            self.set_last(f"update check failed: {e}")
-            return
-        stack, _, mod_on = self.module_info()
-        fw_p, mod_p = u["firmware_tag_prefix"], u["module_tag_prefix"]
-        fw = mod = None
-        for rel in releases if isinstance(releases, list) else []:
-            if rel.get("draft") or (rel.get("prerelease") and not u["include_prereleases"]):
-                continue
-            tag = str(rel.get("tag_name", ""))
-            info = {"tag": tag[:64], "title": str(rel.get("name") or tag)[:100],
-                    "url": str(rel.get("html_url", ""))[:255],
-                    "summary": str(rel.get("body") or "")[:255]}
-            assets = [str(a.get("name", "")) for a in rel.get("assets", [])]
-            if tag.startswith(mod_p):
-                if any(f"-{stack}-" in a and a.endswith(".gbl") for a in assets):
-                    if mod is None or (version_key(tag, mod_p) or ()) > (version_key(mod["tag"], mod_p) or ()):
-                        mod = info
-            elif tag.startswith(fw_p) and any(a.endswith((".img.zst", ".ext4.zst")) for a in assets):
-                if fw is None or (version_key(tag, fw_p) or ()) > (version_key(fw["tag"], fw_p) or ()):
-                    fw = info
-        self.fw_latest, self.mod_latest = fw, mod
-        self.set_last(f'update check: system {fw["tag"] if fw else "-"}, module {mod["tag"] if mod else "-"}')
+            notes.append("no system repository configured")
+        else:
+            url = f"https://api.github.com/repos/{repo}/releases?per_page=30"
+            headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+                       "User-Agent": f"px30-agent/{AGENT_VERSION}"}
+            if u.get("github_token"):
+                headers["Authorization"] = f'Bearer {u["github_token"]}'
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as r:
+                    releases = json.loads(r.read().decode())
+            except (OSError, ValueError, urllib.error.URLError) as e:
+                releases = None
+                notes.append(f"system check failed: {e}")
+            if releases is not None:
+                fw_p, fw = u["firmware_tag_prefix"], None
+                for rel in releases if isinstance(releases, list) else []:
+                    if rel.get("draft") or (rel.get("prerelease") and not u["include_prereleases"]):
+                        continue
+                    tag = str(rel.get("tag_name", ""))
+                    assets = [str(a.get("name", "")) for a in rel.get("assets", [])]
+                    if tag.startswith(fw_p) and any(a.endswith((".img.zst", ".ext4.zst")) for a in assets):
+                        if fw is None or (version_key(tag, fw_p) or ()) > (version_key(fw["tag"], fw_p) or ()):
+                            fw = {"tag": tag[:64], "title": str(rel.get("name") or tag)[:100],
+                                  "url": str(rel.get("html_url", ""))[:255],
+                                  "summary": str(rel.get("body") or "")[:255]}
+                self.fw_latest = fw
+        self.set_last(f'update check: system {self.fw_latest["tag"] if self.fw_latest else "-"}, '
+                      f'module {self.mod_latest["tag"] if self.mod_latest else "-"}'
+                      + (f' ({"; ".join(notes)})' if notes else ""))
         self.publish_updates()
 
     # ------------------------------------------------------- display
@@ -800,6 +837,8 @@ class Agent:
                 if not self.dry_run:
                     write_json_atomic(SETTINGS_PATH, self.settings, 0o600)
                 self.set_last(f"radio channel: {p} (apply with Radio module firmware > Install)")
+                self.refresh_module_latest()
+                self.publish_updates()
                 self.publish_state()
             return do_channel
         if name == "install_firmware":

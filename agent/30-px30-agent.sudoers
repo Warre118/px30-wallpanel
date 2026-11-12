@@ -15,12 +15,15 @@ Cmnd_Alias PX30_AGENT_SYS = /usr/bin/systemctl reboot, \
 	/usr/local/sbin/px30-panel setup, \
 	/usr/local/sbin/px30-panel menu
 Cmnd_Alias PX30_AGENT_UPD = /usr/local/sbin/px30-update system latest, \
+	/usr/local/sbin/px30-update radio sync, \
 	/usr/sbin/ot-ctl rcp version
 # radio module: stack + channel (px30-radio shows/handles the network-loss risk)
 Cmnd_Alias PX30_AGENT_RADIO = /usr/local/sbin/px30-radio switch thread stable --yes, \
 	/usr/local/sbin/px30-radio switch thread latest --yes, \
 	/usr/local/sbin/px30-radio switch zigbee stable --yes, \
 	/usr/local/sbin/px30-radio switch zigbee latest --yes, \
+	/usr/local/sbin/px30-radio switch thread beta --yes, \
+	/usr/local/sbin/px30-radio switch zigbee beta --yes, \
 	/usr/local/sbin/px30-radio use off, \
 	/usr/local/sbin/px30-radio use thread, \
 	/usr/local/sbin/px30-radio use zigbee

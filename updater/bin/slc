@@ -1,0 +1,24 @@
+#!/bin/sh
+# slc wrapper for the fwpipe image. slc-cli 6 runs the SDK's template
+# generators with the Python adapter pack, which it only finds when it is
+# passed as --tool-path. Newer builder versions pass it themselves; for older
+# ones (and anything else that calls plain `slc generate`) it is added here.
+SLC_HOME="${SLC_HOME:-/opt/silabs/slc_cli}"
+case " $* " in
+  *" generate "*)
+    case " $* " in
+      *" --tool-path"*|*" -tp "*) ;;
+      *) for p in /opt/silabs/*/apack.json; do
+           [ -f "$p" ] && set -- "$@" "--tool-path=$(dirname "$p")"
+         done ;;
+    esac ;;
+esac
+# slc embeds the adapter pack's Python (jep); variables meant for fwpipe's own
+# Python must not leak into it
+unset PYTHONPATH PYTHONHOME VIRTUAL_ENV
+# and the template generators run `python3` from PATH: that must be the pack's
+# (it has jinja2), not fwpipe's venv or Debian's
+[ -x /opt/silabs/python/bin/python3 ] && PATH="/opt/silabs/python/bin:$PATH"
+export PATH
+echo "slc wrapper: $SLC_HOME/slc $*" >&2
+exec "$SLC_HOME/slc" "$@"

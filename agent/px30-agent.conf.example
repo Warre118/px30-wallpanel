@@ -23,6 +23,8 @@
     "include_prereleases": false,
     "firmware_tag_prefix": "v",
     "module_tag_prefix": "module-",
-    "github_token": ""
+    "github_token": "",
+    "_comment_radio": "radio_catalog_url = signed catalog.json of the radio firmware pipeline (updater/); empty = only the firmware in the image",
+    "radio_catalog_url": "https://raw.githubusercontent.com/Warre118/px30-wallpanel/firmware/catalog.json"
   }
 }

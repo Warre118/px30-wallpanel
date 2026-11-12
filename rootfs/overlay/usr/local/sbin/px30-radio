@@ -3,16 +3,16 @@
 
   px30-radio status [--json]            current stack / version / services
   px30-radio probe [--json]             ask the chip which firmware it runs (~11 s;
-                                        both services are stopped meanwhile)
-  px30-radio use thread|zigbee|off [--flash] [--yes]
-                                        choose the stack. thread/zigbee: if the chip
-                                        already runs it, only its service is turned on;
-                                        otherwise --flash is needed (= switch, network
-                                        lost). off: radio unused, both services off
+                                        the radio services are stopped meanwhile)
+  px30-radio use thread|zigbee|router|off [--flash] [--yes]
+                                        choose the stack. If the chip already runs
+                                        it, only its service is turned on (router: no
+                                        service); otherwise --flash is needed (= switch,
+                                        network lost). off: radio unused, services off
   px30-radio list [--json]              available firmware (catalog)
   px30-radio switch STACK [CHANNEL] [--yes] [--force]
-        STACK   thread | zigbee
-        CHANNEL stable (default) | latest
+        STACK   thread | zigbee | router
+        CHANNEL stable (default) | latest | beta (only when a beta is published)
         --yes   no interactive confirmation (px30-agent: it has its own arm switch)
         --force flash even if this exact version is already on the module
   px30-radio backup                     Thread: save the active dataset to /data/radio/backup
@@ -26,6 +26,9 @@ Stacks:
           for ZHA / Zigbee2MQTT (socket://<panel>:6638). By default it only listens
           on 127.0.0.1; set ZIGBEE_LISTEN=0.0.0.0 in /data/radio/radio.conf to allow
           the LAN (no authentication on that port!).
+  router  stand-alone Zigbee router (repeater): joins an open Zigbee network by itself
+          (open "permit join" in ZHA / Zigbee2MQTT), needs nothing on the panel. Its CLI
+          command "bootloader reboot" lets universal-silabs-flasher update it again.
 
 WARNINGS (shown again before anything is done):
   * switching stack = the network on the module is LOST; every device must be paired again
@@ -34,7 +37,8 @@ WARNINGS (shown again before anything is done):
 
 Exit codes: 0 ok, 1 error, 2 refused (not confirmed / already installed), 3 busy.
 Files: /usr/share/px30-radio/catalog.json (+ firmware/), /data/radio/catalog.json
-(downloaded, takes precedence), /data/radio/state.json, /data/radio/radio.conf.
+(+ firmware/; downloaded by `px30-update radio sync`, takes precedence),
+/data/radio/state.json, /data/radio/radio.conf.
 """
 import fcntl, hashlib, json, os, re, subprocess, sys, time
 
@@ -46,9 +50,12 @@ CONF = DATA + "/radio.conf"
 LOCK = "/run/px30-radio.lock"
 USF = "/opt/usf/bin/universal-silabs-flasher"
 DEVICE = "/dev/ttyThread"
-STACKS = ("thread", "zigbee")
-CHANNELS = ("stable", "latest")
-SERVICE = {"thread": "otbr-agent.service", "zigbee": "px30-zigbee-bridge.service"}
+STACKS = ("thread", "zigbee", "router")
+CHANNELS = ("stable", "latest", "beta")
+SERVICE = {"thread": "otbr-agent.service", "zigbee": "px30-zigbee-bridge.service", "router": None}
+UNITS = [u for u in SERVICE.values() if u]
+# universal-silabs-flasher application type per stack (--probe-methods)
+USF_APP = {"thread": "spinel", "zigbee": "ezsp", "router": "router"}
 # application type reported by universal-silabs-flasher -> stack
 APP_STACK = {"SPINEL": "thread", "EZSP": "zigbee", "GECKO_BOOTLOADER": "bootloader",
              "CPC": "cpc", "ROUTER": "router"}
@@ -66,6 +73,8 @@ WARN_VERSION = """
 BACKUP_HINT = {
     "thread": "The active Thread dataset is saved to /data/radio/backup first.",
     "zigbee": "Make a backup in ZHA (Settings > Zigbee > Backup) or Zigbee2MQTT FIRST.",
+    "router": "The router keeps its network if the new firmware takes over its tokens; "
+              "otherwise pair it again.",
 }
 
 
@@ -152,11 +161,9 @@ def probe():
         res["error"] = "busy"
         return res
     try:
-        guess = state()["stack"]
-        order = ("spinel", "ezsp") if guess == "thread" else ("ezsp", "spinel")
-        methods = ",".join(f"{m}:115200" for m in order) + ",bootloader:115200"
-        was = [u for u in SERVICE.values() if active(u)]
-        for u in SERVICE.values():
+        methods = probe_methods(state()["stack"])
+        was = [u for u in UNITS if active(u)]
+        for u in UNITS:
             subprocess.run(["systemctl", "stop", u], check=False)
         try:
             r = subprocess.run([USF, "--device", DEVICE, "--probe-methods", methods, "probe"],
@@ -196,7 +203,7 @@ def cmd_use(target, flash, yes):
         cmd_apply()
         return
     if target not in STACKS:
-        die(f"use: thread, zigbee or off")
+        die(f"use: thread, zigbee, router or off")
     chip = known
     if not chip:
         # nothing recorded (first boot, after a factory reset): ask the chip
@@ -241,7 +248,7 @@ def cmd_status(js):
     s = state()
     s["enabled"] = s.get("enabled", True)
     s["probe"] = load(PROBE, None)
-    s["services"] = {u: active(u) for u in SERVICE.values()}
+    s["services"] = {u: active(u) for u in UNITS}
     s["zigbee_listen"] = conf()["ZIGBEE_LISTEN"]
     if js:
         print(json.dumps(s))
@@ -297,10 +304,20 @@ def confirm(word):
         die("cancelled", 2)
 
 
+def probe_methods(first, baud=115200, boot_baud=115200):
+    """--probe-methods for universal-silabs-flasher, the expected stack first."""
+    order = [USF_APP[first]] if first in USF_APP else []
+    order += [m for m in ("ezsp", "spinel", "router") if m not in order]
+    return ",".join(f"{m}:{baud}" for m in order) + f",bootloader:{boot_baud}"
+
+
 def set_services(stack):
-    on, off = SERVICE[stack], SERVICE["zigbee" if stack == "thread" else "thread"]
-    subprocess.run(["systemctl", "disable", "--now", off], check=False)
-    subprocess.run(["systemctl", "enable", "--now", on], check=False)
+    on = SERVICE.get(stack)
+    for unit in UNITS:
+        if unit != on:
+            subprocess.run(["systemctl", "disable", "--now", unit], check=False)
+    if on:
+        subprocess.run(["systemctl", "enable", "--now", on], check=False)
 
 
 def cmd_apply():
@@ -312,22 +329,24 @@ def cmd_apply():
         print("no stack chosen (px30-radio use ...); nothing changed")
         return
     if s.get("enabled") is False:
-        for unit in SERVICE.values():
+        for unit in UNITS:
             if subprocess.run(["systemctl", "is-enabled", "--quiet", unit]).returncode == 0 or active(unit):
                 subprocess.run(["systemctl", "disable", "--now", unit], check=False)
-        print("radio off: both services off")
+        print("radio off: services off")
         return
-    on, off = SERVICE[stack], SERVICE["zigbee" if stack == "thread" else "thread"]
-    for unit, want in ((off, False), (on, True)):
+    on = SERVICE[stack]
+    for unit in UNITS:
+        want = unit == on
         en = subprocess.run(["systemctl", "is-enabled", "--quiet", unit]).returncode == 0
         if en != want:
             subprocess.run(["systemctl", "enable" if want else "disable", "--now", unit], check=False)
-    print(f"{stack}: {on} on, {off} off")
+    print(f"{stack}: " + (f"{on} on, " if on else "no service needed, ") +
+          ", ".join(u for u in UNITS if u != on) + " off")
 
 
 def cmd_switch(stack, channel, yes, force):
     if stack not in STACKS:
-        die(f"stack must be {' or '.join(STACKS)}")
+        die(f"stack must be one of {', '.join(STACKS)}")
     if channel not in CHANNELS:
         die(f"channel must be {' or '.join(CHANNELS)}")
     e = catalog().get((stack, channel))
@@ -362,18 +381,17 @@ def cmd_switch(stack, channel, yes, force):
     if old_stack == "thread":
         thread_backup()
     # nobody else may hold the UART while flashing
-    for u in SERVICE.values():
+    for u in UNITS:
         subprocess.run(["systemctl", "stop", u], check=False)
 
+    # universal-silabs-flasher >= 1.0: one --probe-methods list; the old
+    # --ezsp-baudrate/--spinel-baudrate/--bootloader-baudrate options and the
+    # --allow-cross-flashing/--allow-downgrades/--force guards are gone (this
+    # script asks for confirmation itself, above)
     argv = [USF, "--device", DEVICE,
-            "--bootloader-baudrate", str(e.get("bootloader_baudrate", 115200)),
-            "--ezsp-baudrate", str(e.get("baudrate", 115200)),
-            "--spinel-baudrate", str(e.get("baudrate", 115200)),
+            "--probe-methods", probe_methods(old_stack, e.get("baudrate", 115200),
+                                             e.get("bootloader_baudrate", 115200)),
             "flash", "--firmware", e["path"]]
-    if stack != old_stack:
-        argv.append("--allow-cross-flashing")
-    if force or vkey(new_ver) < vkey(old_ver):
-        argv += ["--allow-downgrades", "--force"]
     print("  " + " ".join(argv), flush=True)
     rc = subprocess.run(argv).returncode
     if rc != 0:

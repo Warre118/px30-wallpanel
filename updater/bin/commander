@@ -1,0 +1,31 @@
+#!/opt/fwpipe-venv/bin/python3
+"""Minimal stand-in for Simplicity Commander in the fwpipe image: only
+`commander gbl create <out.gbl> --app <elf> [--metadata <json>]`, the one
+call older silabs-firmware-builder versions make (tools/create_gbl.py).
+Built with pygbl, like newer builder versions do themselves. Commander itself
+cannot be downloaded without a browser."""
+import argparse, json, sys
+
+from pygbl import build_application_gbl3
+
+if sys.argv[1:3] != ["gbl", "create"]:
+    sys.exit(f"commander (fwpipe stand-in): unsupported command: {' '.join(sys.argv[1:])}")
+p = argparse.ArgumentParser(prog="commander gbl create")
+p.add_argument("out")
+p.add_argument("--app", required=True)
+p.add_argument("--metadata")
+for unsupported in ("--bootloader", "--compress", "--sign", "--encrypt"):
+    p.add_argument(unsupported)
+a = p.parse_args(sys.argv[3:])
+for opt in ("bootloader", "compress", "sign", "encrypt"):
+    if getattr(a, opt):
+        sys.exit(f"commander (fwpipe stand-in): --{opt} is not supported")
+metadata = None
+if a.metadata:
+    with open(a.metadata, encoding="utf-8") as f:
+        metadata = json.dumps(json.load(f), sort_keys=True).encode()
+with open(a.app, "rb") as f:
+    image = build_application_gbl3(f, metadata=metadata)
+with open(a.out, "wb") as f:
+    f.write(image.serialize(block_size=4))      # Commander pads to 4 bytes too
+print(f"commander (fwpipe stand-in): wrote {a.out}")

@@ -1,0 +1,34 @@
+# TubesZB EFR32 MGM210 2022 - OpenThread RCP (Thread radio for a border router,
+# i.e. the radio side of Matter-over-Thread).
+# Overlay on manifests/nabucasa/yellow/yellow_openthread_rcp.yaml.
+#
+# Same board differences as zigbee_ncp.yaml. The Yellow runs its RCP at 460800
+# baud with RTS/CTS; the TubesZB bridge is a two-wire UART at 115200 (the baud
+# rate in the ESPHome config), so: 115200, no flow control. A border router
+# (otbr-agent) has to reach it over TCP, e.g.
+#   spinel+hdlc+uart://... via socat, or the OTBR add-on's network device option.
+# NOT tested on the hardware yet.
+
+set:
+  name: TubesZB MGM210 2022 OpenThread RCP
+  gbl:
+    baudrate: 115200
+  configuration:
+    SL_IOSTREAM_USART_VCOM_FLOW_CONTROL_TYPE: usartHwFlowControlNone
+
+remove_components: [simple_led]
+remove_defines:
+  - SL_SIMPLE_LED_BOARD_ACTIVITY_.*
+
+set_matching:
+  SL_IOSTREAM_USART_VCOM_BAUDRATE: 115200
+
+pins:
+  SL_IOSTREAM_USART_VCOM_:
+    TX: PA06
+    RX: PA05
+    CTS: PC01
+    RTS: PD02
+
+set_defines:
+  SL_IOSTREAM_USART_VCOM_FLOW_CONTROL_TYPE: usartHwFlowControlNone

@@ -42,6 +42,9 @@ __pycache__/
 *.pyc
 
 # --- local secrets ---
+updater/.env
+updater/keys/
+*.pem
 *.psk
 *.key
 id_*

@@ -65,8 +65,9 @@ RADIO_FW=(ot-rcp-tyzs13-gsdk4.4.6-115200-hwflow-btl.gbl ncp-uart-hw-tyzs13-ezsp1
 for f in "${RADIO_FW[@]}"; do [ -r "$RADIO_DIST/$f" ] || { echo "ERROR: $RADIO_DIST/$f missing"; exit 1; }; done
 RADIO_HOOKS=()
 for f in "${RADIO_FW[@]}"; do RADIO_HOOKS+=(--customize-hook="upload '$RADIO_DIST/$f' /usr/share/px30-radio/firmware/$f"); done
-# universal-silabs-flasher (pip, not in Debian); empty = newest
-USF_VERSION="${USF_VERSION:-}"
+# universal-silabs-flasher (pip, not in Debian). px30-radio uses the 1.3 command
+# line (--probe-methods, flash --firmware); empty = newest
+USF_VERSION="${USF_VERSION:-1.3.0}"
 
 # Wi-Fi profile only if passed in via the environment (never in git)
 WIFI_TMP=""

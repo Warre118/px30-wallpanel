@@ -1,0 +1,16 @@
+# Build context is the repository root; only the firmware recipe and the
+# updater itself go into the image. Never the .env with the token.
+*
+!zigbee/gen-ot-rcp.sh
+!zigbee/build-ot-rcp.sh
+!zigbee/patch-ot-rcp.py
+!zigbee/gen-ncp.sh
+!zigbee/build-ncp.sh
+!zigbee/patch-ncp.py
+!zigbee/gen-router.sh
+!zigbee/build-router.sh
+!zigbee/router/
+!updater/
+updater/.env
+updater/tests/
+**/__pycache__/

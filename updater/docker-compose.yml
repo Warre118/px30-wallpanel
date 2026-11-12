@@ -1,0 +1,28 @@
+# Radio firmware update pipeline: one container, no Docker socket, no host
+# access. From this folder:
+#   cp .env.example .env        (a GitHub token that may push to the device repos)
+#   docker compose up -d --build
+#   docker compose logs -f fwpipe
+# One-off commands:
+#   docker compose run --rm fwpipe check
+#   docker compose run --rm fwpipe run --device tubeszb-mgm210 --firmware zigbee_ncp --channel beta
+services:
+  fwpipe:
+    build:
+      context: ..
+      dockerfile: updater/Dockerfile
+    image: fwpipe:local
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # checkouts of the device repos, build state, and the tool cache
+      # (Arm GCC, Silicon Labs SDKs: several GB once a few versions are in)
+      - fwpipe-data:/data
+      - fwpipe-work:/work
+      - ./config.yaml:/app/updater/config.yaml:ro
+      # ECDSA P-256 private key (radio-update.pem) that signs the manifests (see README)
+      - ./keys:/keys:ro
+
+volumes:
+  fwpipe-data:
+  fwpipe-work:

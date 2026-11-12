@@ -10,7 +10,7 @@ model: [docs/home-assistant.md](../docs/home-assistant.md).
 | `30-px30-agent.sudoers` | `/etc/sudoers.d/30-px30-agent` (exact command lines only) |
 | `px30-agent.sysusers`, `px30-agent.tmpfiles` | system user and `/data/px30-agent` ownership |
 | `61-px30-backlight.rules` | backlight write access for group `video` |
-| `px30-update` | `/usr/local/sbin/px30-update`, a **stub**: updates from GitHub are not implemented |
+| `px30-update` | `/usr/local/sbin/px30-update`: `radio sync` downloads the published radio firmware catalog into `/data/radio`; `system latest` is a **stub** (system updates from GitHub are not implemented) |
 | `px30-agent.conf.example` | example for `/data/px30-agent/config.json` |
 
 `rootfs/build-rootfs.sh` installs all of these. Configure the agent with the

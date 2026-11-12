@@ -48,7 +48,7 @@ Tested on one panel (ST-PX30-T6E, 2021 board). Other Smatek PX30 variants
 | Radio flashing | flashing another stack or version on the module (`px30-radio switch`, `use --flash`, the module update in HA) **does not work yet**. Choosing between stacks without flashing works |
 | Zigbee | the EmberZNet NCP firmware builds, but has not run on the panel (needs the flashing above) |
 | Radio module | first flash of the bootloader-capable RCP needs **SWD** (a cheap debug probe); see [docs/radio.md](docs/radio.md) |
-| Updates from GitHub | `px30-update` is a stub; updates are pushed from a PC (`tools/px30-ota.sh`) |
+| Updates from GitHub | system: `px30-update system` is a stub; updates are pushed from a PC (`tools/px30-ota.sh`). Radio firmware: the panel downloads published builds and reports an update ([updater/README.md](updater/README.md)), but cannot flash them yet (see *Radio flashing*) |
 | Hotspot details | the Cancel button and the 5-minute retry of a known network are untested |
 | Fresh install | the full install path from stock Android is described below, but was done step by step on the development panel, not end to end with this exact script set |
 | Other | buttons (adc-keys), the MBI5041 LED driver, the T&H connector and the second UART are not used |
@@ -156,6 +156,7 @@ Restore the backup with RKDevTool in Loader mode. See
 | [docs/flashing.md](docs/flashing.md) | backup, Loader mode, first install, OTA, restoring Android |
 | [docs/system.md](docs/system.md) | eMMC layout, boot flow, A/B, rescue mode, recovery paths |
 | [docs/radio.md](docs/radio.md) | Zigbee/Thread module: firmware, SWD, OTBR, switching stacks |
+| [updater/README.md](updater/README.md) | container that builds and publishes radio firmware (stable / latest / beta) for the panel and a TubesZB coordinator |
 | [docs/hardware.md](docs/hardware.md) | hardware details found during the port |
 | [docs/efficiency.md](docs/efficiency.md) | resource use measured on the panel, tuning done and still to try |
 | [docs/development-notes.md](docs/development-notes.md) | how the hard problems were solved, open issues |
