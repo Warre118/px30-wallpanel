@@ -141,7 +141,7 @@ class Pipeline:
         changes = list(self.store.changes)
         if not dry_run:
             self.store.write_indexes()
-            self.store.commit_push(push=push)
+            self.failures += self.store.commit_push(push=push)
             self._prune_cache()
             self.state["last_run"] = now_iso()
             save_json(self.state_path, self.state)

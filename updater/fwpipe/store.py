@@ -69,16 +69,24 @@ class Store:
             log(f"store: {repo} has no branch {branch} yet (the first publish creates it)")
 
     def commit_push(self, push=True):
-        if not self.pub["repo"] or not self.changes:
+        """Commit this pass's changes, then push the branch. The push also runs
+        without new changes: commits of an earlier pass whose push failed (no
+        token, network) go out with the next pass."""
+        if not self.pub["repo"]:
             return False
-        self._git("add", "-A")
-        if self._git("diff", "--cached", "--quiet", check=False).returncode == 0:
-            return False
-        subject = self.changes[0] if len(self.changes) == 1 else f"{len(self.changes)} firmware changes"
-        self._git("commit", "-q", "-m", subject + "\n\n" + "\n".join(self.changes))
-        if push:
+        committed = False
+        if self.changes:
+            self._git("add", "-A")
+            if self._git("diff", "--cached", "--quiet", check=False).returncode != 0:
+                subject = self.changes[0] if len(self.changes) == 1 else f"{len(self.changes)} firmware changes"
+                self._git("commit", "-q", "-m", subject + "\n\n" + "\n".join(self.changes))
+                committed = True
+        has_head = self._git("rev-parse", "-q", "--verify", "HEAD", check=False, capture=True).returncode == 0
+        if push and has_head:
+            if not os.environ.get("GITHUB_TOKEN"):
+                raise RuntimeError(f"cannot push to {self.pub['repo']}: GITHUB_TOKEN is empty")
             self._git("push", "-q", "origin", f'HEAD:refs/heads/{self.pub["branch"]}')
-        return True
+        return committed
 
     # ------------------------------------------------------------ paths
     def _pub(self, device):
@@ -337,7 +345,16 @@ class Stores:
         return out
 
     def commit_push(self, push=True):
-        return [st.commit_push(push=push) for st in self.stores]
+        """Commit and push every repository on its own; returns the errors (one
+        repository failing does not keep the others from publishing)."""
+        errors = []
+        for st in self.stores:
+            try:
+                st.commit_push(push=push)
+            except Exception as e:  # noqa: BLE001 - reported, the next pass retries
+                errors.append(f"publish to {st.pub['repo']}: {str(e)[-300:]}")
+                log(f"FAILED: publish to {st.pub['repo']}: {e}")
+        return errors
 
 
 def newer(a, b):
