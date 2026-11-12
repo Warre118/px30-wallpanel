@@ -12,11 +12,15 @@ export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
 export PATH="$JAVA_HOME/bin:$PATH"
 SDK="${SDK:-$T/gecko_sdk}"
 OUT="${OUT:-$HOME/px30-build/zigbee/ot-rcp}"
+# SLC_TOOL_PATH may list several adapter packs (a:b:c); slc wants one
+# --tool-path per pack and silently ignores a colon-joined one
+TP=(); IFS=: read -ra _tp <<< "${SLC_TOOL_PATH:-}"
+for p in "${_tp[@]}"; do [ -n "$p" ] && TP+=(--tool-path="$p"); done
 cd "$T"
 slc configuration --sdk "$SDK" --gcc-toolchain "$GCC_DIR" >/dev/null
 slc signature trust --sdk "$SDK" >/dev/null || true
 rm -rf "$OUT"; mkdir -p "$OUT"
 slc generate "$SDK/protocol/openthread/sample-apps/ot-ncp/ot-rcp.slcp" \
   -np -d "$OUT" -name ot-rcp-tyzs13 -o makefile \
-  --with EFR32MG13P732F512GM48 ${SLC_TOOL_PATH:+--tool-path="$SLC_TOOL_PATH"} 2>&1 | tail -20
+  --with EFR32MG13P732F512GM48 "${TP[@]}" 2>&1 | tail -20
 ls "$OUT" "$OUT/config" | head -60
