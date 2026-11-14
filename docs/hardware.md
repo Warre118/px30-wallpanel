@@ -19,7 +19,7 @@ from the PCB.
 | PMIC | Rockchip RK809 on I2C0 0x20 (regulators, RTC, codec, clkout) | `rk808` / `rk817` codec |
 | Audio | RK809 codec, one speaker | works (`Playback Mux` = SPK) |
 | Microphone | probably a PDM microphone (Android enables `pdm@ff0a0000`) | not set up |
-| Proximity / light | Sensortek STK3x1x, I2C2 0x47, IRQ GPIO3_C0 (polled) | `stk3310` |
+| Proximity / light | Sensortek STK3x1x, I2C2 0x47, or STK3335 at 0x46 (chip id 0x51) on other boards; IRQ GPIO3_C0 (polled) | `stk3310` |
 | Wi-Fi + BT | RTL8723DS: Wi-Fi on SDIO, BT on UART1 (H5) | Wi-Fi: `rtw88_8723ds`; BT: not working |
 | Zigbee / Thread | Tuya TYZS13 (EFR32MG13P732) on UART5 with RTS/CTS | see [radio.md](radio.md) |
 | Buttons | `adc-keys` (ESC, HOME, VOL+/−, MENU) in the vendor DT | not wired up / unknown |
@@ -59,6 +59,13 @@ itself.
 ## Proximity sensor
 
 - Android polls every 200 ms. The IRQ is not used.
+- Two variants exist. The vendor DT lists both `stk3x3x` at 0x47 and
+  `stk3a5x` at 0x46; on some panels only 0x46 answers (`i2cdetect -y -r 2`),
+  with chip id 0x51 (register 0x3e), which mainline handles as STK3335. The
+  DT describes both; the absent one fails to probe without a message. With
+  the wrong address `proximity-wake` exits ("no IIO device with
+  in_proximity_raw") and the screen never turns off.
+- STK3335 baseline without a hand: ~20–26 counts at the driver defaults.
 - Baseline without a hand: ~190 counts.
 - Ambient light: the mainline driver defaults to the shortest integration
   time, which reads 0 indoors. `proximity-wake` sets
