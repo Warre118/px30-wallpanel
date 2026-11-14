@@ -118,6 +118,8 @@ def valid_passphrase(pw):
 def known_content(ssid, password, hidden=False):
     """(security, file content) for a new known network."""
     settings = "[Settings]\nAutoConnect=true\n" + ("Hidden=true\n" if hidden else "")
+    # hostname in the DHCP request: the router shows the panel by name (iwd default: off)
+    settings += "\n[IPv4]\nSendHostname=true\n"
     if not password:
         return "open", settings
     if re.fullmatch(r"[0-9A-Fa-f]{64}", password):
