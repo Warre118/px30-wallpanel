@@ -165,6 +165,12 @@ mmdebstrap \
       rm -f "$R/root/admin.pub"
       chroot "$R" chown -R admin:admin /home/admin/.ssh
     fi
+    # Wi-Fi regulatory database: Debian points regulatory.db at its own build,
+    # signed with the Debian key; the mainline kernel only trusts the upstream
+    # key (CFG80211_REQUIRE_SIGNED_REGDB + USE_KERNEL_REGDB_KEYS) and rejected
+    # it ("regulatory.db is malformed or signature is missing/invalid"): the
+    # panel stayed in the world domain 00 whatever the country
+    chroot "$R" update-alternatives --set regulatory.db /lib/firmware/regulatory.db-upstream
     # services
     chroot "$R" systemctl enable iwd systemd-resolved systemd-timesyncd ssh proximity-wake \
       systemd-networkd usb-gadget px30-boot-ok.timer px30-agent px30-audio px30-panel
