@@ -483,12 +483,19 @@ class Setup:
                 res["private_key"] = priv
         if d.get("mqtt_change"):
             res["msgs"].append(self.mqtt(d))
+        try:
+            return self._submit_ha(d, res)
+        except HAError as e:
+            # the sections above are applied already: say so
+            done = [m for m in res["msgs"] if m]
+            raise HAError("; ".join(done + [str(e)])) if done else e
+
+    def _submit_ha(self, d, res):
         dash = (d.get("dashboard") or "").strip()
         cur = kiosk_url()
         if d.get("relogin") or not configured():
             if not dash:
-                # the sections above are applied already: say so
-                raise HAError("; ".join([m for m in res["msgs"] if m] + ["Home Assistant: dashboard URL missing"]))
+                raise HAError("Home Assistant: dashboard URL missing")
             lg = HALogin(dash, bool(d.get("insecure")))
             self.msg = "logging in to Home Assistant..."
             lg.start()
