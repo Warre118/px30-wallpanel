@@ -26,6 +26,18 @@ shows:
      - If the panel is already logged in, changing only the dashboard on the
        same HA server needs no new login. A URL on another HA server opens
        the login fields by itself. Tick "Log in again" to change user.
+   - **Name and region:**
+     - *Panel name*: the hostname, so the panel answers as `<name>.local`
+       (and on the router's DHCP list). Lowercase letters, digits and `-`. With
+       MQTT set up, Home Assistant then shows the panel as a new device.
+     - *Time zone*: for the dashboard clock (HA's "use your local time zone")
+       and the logs. Not set yet: suggested from the phone's time zone.
+     - *Wi-Fi country*: the regulatory domain (channels 12-13, transmit
+       power). Not set yet: suggested from the time zone, else from the
+       phone's language. Without it the panel stays in the world domain.
+     - Applied at once and kept on `/data` (`hostname`, `timezone`,
+       `wifi-country`); the initramfs applies them again at every boot, so
+       they survive updates and reinstalls.
    - **MQTT** (optional, for the [Home Assistant device](home-assistant.md)):
      the stored settings are filled in. Change what you need; the section is
      only applied when something in it differs.

@@ -27,7 +27,9 @@ What lives on `/data`:
 - `px30-agent/`: MQTT configuration and display settings;
 - `px30-panel/`: setup certificate and `services.json`;
 - `radio/`: the chosen radio stack and the Thread dataset backup;
-- `machine-id`, `hostname`.
+- `machine-id`, `hostname`, `timezone`, `wifi-country` (the last three from the
+  setup page; the initramfs writes `/etc/hostname`, `/etc/hosts`,
+  `/etc/localtime` and the `cfg80211` country option from them at every boot).
 
 ## Images
 

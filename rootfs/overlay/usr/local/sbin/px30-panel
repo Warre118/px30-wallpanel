@@ -463,8 +463,12 @@ class Setup:
     # ---- steps (called from the phone)
     def submit(self, d):
         """One form, independent sections: whatever is left unchanged is kept.
-        Order: services, SSH, MQTT, then the HA login (may need a 2FA step)."""
+        Order: name and region, services, SSH, MQTT, then the HA login (may
+        need a 2FA step). Name and region are validated first: a wrong value
+        stops the whole form before anything is changed."""
         res = {"msgs": []}
+        if isinstance(d.get("region"), dict):
+            res["msgs"] += region_apply(d["region"])
         if isinstance(d.get("services"), dict):
             res["msgs"] += services_apply(d["services"])
         if isinstance(d.get("sensors"), dict):
@@ -479,12 +483,19 @@ class Setup:
                 res["private_key"] = priv
         if d.get("mqtt_change"):
             res["msgs"].append(self.mqtt(d))
+        try:
+            return self._submit_ha(d, res)
+        except HAError as e:
+            # the sections above are applied already: say so
+            done = [m for m in res["msgs"] if m]
+            raise HAError("; ".join(done + [str(e)])) if done else e
+
+    def _submit_ha(self, d, res):
         dash = (d.get("dashboard") or "").strip()
         cur = kiosk_url()
         if d.get("relogin") or not configured():
             if not dash:
-                # the sections above are applied already: say so
-                raise HAError("; ".join([m for m in res["msgs"] if m] + ["Home Assistant: dashboard URL missing"]))
+                raise HAError("Home Assistant: dashboard URL missing")
             lg = HALogin(dash, bool(d.get("insecure")))
             self.msg = "logging in to Home Assistant..."
             lg.start()
@@ -798,6 +809,111 @@ def services_apply(choice, save=True):
     return msgs
 
 
+# ------------------------------------------------------------- name and region
+# Stored on /data (kept across updates and reinstalls); the initramfs applies
+# them at every boot: /etc/hostname + /etc/hosts, /etc/localtime, and the Wi-Fi
+# regulatory country as cfg80211 module option.
+ZONEINFO = "/usr/share/zoneinfo"
+HOSTNAME_FILE = "/data/hostname"
+TZ_FILE = "/data/timezone"
+COUNTRY_FILE = "/data/wifi-country"
+HOSTS_FILE = "/etc/hosts"
+HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+def _tab(name):
+    """rows of a tzdata table (iso3166.tab, zone.tab)"""
+    try:
+        with open(f"{ZONEINFO}/{name}", encoding="utf-8") as f:
+            return [l.rstrip("\n").split("\t") for l in f if l.strip() and not l.startswith("#")]
+    except OSError:
+        return []
+
+
+def region_lists():
+    """-> countries [(code, name)], zones [name], zone_country {zone: code}"""
+    countries = sorted(((r[0], r[1]) for r in _tab("iso3166.tab") if len(r) >= 2), key=lambda c: c[1])
+    zone_country = {r[2]: r[0] for r in _tab("zone.tab") if len(r) >= 3}
+    return countries, sorted(set(zone_country) | {"UTC"}), zone_country
+
+
+def _read(path):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def _write(path, value):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "w") as f:
+        f.write(value + "\n")
+    os.chmod(path + ".tmp", 0o644)
+    os.replace(path + ".tmp", path)
+
+
+def current_timezone():
+    tz = _read(TZ_FILE)
+    if tz:
+        return tz
+    zi = os.path.realpath(ZONEINFO) + "/"
+    lt = os.path.realpath("/etc/localtime")
+    tz = lt[len(zi):] if lt.startswith(zi) else "UTC"
+    return "UTC" if tz in ("Etc/UTC", "Etc/UCT", "UCT", "Zulu", "Etc/Zulu") else tz
+
+
+def region_state():
+    countries, zones, zone_country = region_lists()
+    return {"hostname": socket.gethostname(), "timezone": current_timezone(),
+            "timezone_set": bool(_read(TZ_FILE)), "country": _read(COUNTRY_FILE),
+            "zones": zones, "countries": countries, "zone_country": zone_country}
+
+
+def region_check(r):
+    """validate everything before anything is applied -> (hostname, timezone, country), None = unchanged"""
+    countries, zones, _ = region_lists()
+    h, tz, cc = r.get("hostname"), r.get("timezone"), r.get("country")
+    if h is not None and not (isinstance(h, str) and HOSTNAME_RE.match(h)):
+        raise HAError("Name: 1-63 characters, lowercase letters, digits and '-' (not at the start or end)")
+    if tz is not None and not (isinstance(tz, str) and tz in zones and os.path.isfile(f"{ZONEINFO}/{tz}")):
+        raise HAError(f"Time zone: unknown time zone {tz!r}")
+    if cc is not None and not (isinstance(cc, str) and cc in dict(countries)):
+        raise HAError(f"Wi-Fi country: unknown country code {cc!r}")
+    return h, tz, cc
+
+
+def region_apply(r):
+    h, tz, cc = region_check(r)
+    msgs = []
+    if h is not None and h != socket.gethostname():
+        _write(HOSTNAME_FILE, h)
+        sh("hostnamectl", "set-hostname", h)
+        try:                                 # sudo resolves its own name through /etc/hosts
+            with open(HOSTS_FILE) as f:
+                lines = f.read().splitlines()
+            lines = [f"127.0.1.1\t{h}" if l.startswith("127.0.1.1") else l for l in lines]
+            if not any(l.startswith("127.0.1.1") for l in lines):
+                lines.append(f"127.0.1.1\t{h}")
+            with open(HOSTS_FILE + ".tmp", "w") as f:
+                f.write("\n".join(lines) + "\n")
+            os.chmod(HOSTS_FILE + ".tmp", 0o644)
+            os.replace(HOSTS_FILE + ".tmp", HOSTS_FILE)
+        except OSError:
+            pass
+        sh("systemctl", "restart", "avahi-daemon.service")
+        msgs.append(f"Name: {h} (network name {h}.local)")
+    if tz is not None and (tz != current_timezone() or not _read(TZ_FILE)):
+        _write(TZ_FILE, tz)
+        rc, out = sh("timedatectl", "set-timezone", tz)
+        msgs.append(f"Time zone: {tz}" + ("" if rc == 0 else " (applied at the next start)"))
+    if cc is not None and cc != _read(COUNTRY_FILE):
+        _write(COUNTRY_FILE, cc)
+        rc, out = sh("iw", "reg", "set", cc)
+        msgs.append(f"Wi-Fi country: {cc}" + ("" if rc == 0 else " (applied at the next start)"))
+    return msgs
+
+
 SETUP = Setup()
 
 
@@ -963,7 +1079,8 @@ class SetupHandler(Base):
                                    "mqtt_host": mq.get("host", ""), "mqtt_port": mq.get("port", ""),
                                    "mqtt_user": mq.get("username", ""), "mqtt_tls": bool(mq.get("tls")),
                                    "mqtt_has_password": bool(mq.get("password")),
-                                   "ssh": ssh_state(), "services": services_state()})
+                                   "ssh": ssh_state(), "services": services_state(),
+                                   "region": region_state()})
         if self.path.startswith("/api/radio"):
             if not SETUP.check_pin(self.headers.get("X-Pin")):
                 return self.send(403, {"error": "wrong PIN or setup expired"})
