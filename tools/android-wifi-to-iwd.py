@@ -26,6 +26,8 @@ if psk.startswith('"'):
 else:
     assert re.fullmatch(r"[0-9a-fA-F]{64}", psk), "onbekend PSK-formaat"
     body = "[Security]\nPreSharedKey=%s\n" % psk.lower()
+# hostname in the DHCP request: the router shows the panel by name (iwd default: off)
+body += "\n[IPv4]\nSendHostname=true\n"
 
 # iwd file name: readable if only [A-Za-z0-9 _-], else =<hex>
 name = current if re.fullmatch(r"[A-Za-z0-9 _-]+", current) else "=" + current.encode().hex()

@@ -72,7 +72,8 @@ USF_VERSION="${USF_VERSION:-}"
 WIFI_TMP=""
 if [ -n "${WIFI_SSID:-}" ] && [ -n "${WIFI_PSK:-}" ]; then
   WIFI_TMP="$(mktemp -d)"
-  printf '[Security]\nPassphrase=%s\n' "$WIFI_PSK" > "$WIFI_TMP/$WIFI_SSID.psk"
+  # SendHostname: the router shows the panel by name (iwd default: off)
+  printf '[Security]\nPassphrase=%s\n\n[IPv4]\nSendHostname=true\n' "$WIFI_PSK" > "$WIFI_TMP/$WIFI_SSID.psk"
   chmod 600 "$WIFI_TMP/$WIFI_SSID.psk"
 elif [ -n "${IWD_DIR:-}" ]; then
   # ready-made iwd profiles (e.g. tools/android-wifi-to-iwd.py), kept private outside the project
