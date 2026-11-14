@@ -1,12 +1,13 @@
-# Zigbee router 7.5.0.0
+# Zigbee router 7.5.0.0-r2
 
 **PX30 wall panel (TYZS13)**, channel **stable**.
 
-- Firmware version: 7.5.0.0
+- Firmware version: 7.5.0.0-r2 (replaces 7.5.0.0)
 - SDK: Gecko SDK 4.4.6
 - Serial: 115200 baud, hardware flow control
 - Built from: [SiliconLabs/gecko_sdk@v4.4.6](https://github.com/SiliconLabs/gecko_sdk/releases/tag/v4.4.6)
-- Built: 2026-11-12T20:25:33Z
+- Built: 2026-11-14T14:47:40Z
+- Same firmware version as before; rebuilt because the build recipe changed.
 - **Experimental**: not tested on hardware yet.
 
 Zigbee router (joins an open network by itself; CLI on the UART, 'bootloader reboot' for updates)
