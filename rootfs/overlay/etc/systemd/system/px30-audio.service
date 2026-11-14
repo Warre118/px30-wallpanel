@@ -5,8 +5,12 @@ After=sound.target alsa-restore.service
 [Service]
 Type=simple
 # speaker output + default volume (dB scale -95..0; 150/255 ~ -39 dB)
-ExecStartPre=/usr/bin/amixer -q -c 0 cset name='Playback Mux' SPK
-ExecStartPre=/usr/bin/amixer -q -c 0 cset name='Master Playback Volume' 150,150
+ExecStartPre=/usr/bin/amixer -q -c rk809 cset name='Playback Mux' SPK
+ExecStartPre=/usr/bin/amixer -q -c rk809 cset name='Master Playback Volume' 150,150
+# microphones (asound.conf "mic"): the softvol control only exists after the
+# first open; optional ("-"): a missing mic must not stop the speaker
+ExecStartPre=-/usr/bin/arecord -q -D mic -f S16_LE -r 16000 -c 2 -s 160 /dev/null
+ExecStartPre=-/usr/bin/amixer -q -c pdmmic sset Mic 24dB
 ExecStart=/usr/bin/aplay -q -D dmixed -t raw -f S16_LE -r 48000 -c 2 /dev/zero
 Restart=always
 RestartSec=5
