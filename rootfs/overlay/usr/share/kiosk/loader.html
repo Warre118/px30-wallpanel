@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Loader page of kiosk-start: the boot animation (same size and place as the
+     Plymouth theme) until the dashboard in the URL fragment answers, then go there.
+     bootanim.png comes from tools/import-bootanim.py; without it: black. -->
+<html><head><meta charset="utf-8">
+<style>
+html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+img { position: absolute; left: 50%; top: 50%; width: 240px; height: 240px; margin: -120px 0 0 -120px; }
+</style></head>
+<body><img src="bootanim.png" alt="" onerror="this.remove()">
+<script>
+const target = decodeURIComponent(location.hash.slice(1));
+async function poll() {
+  if (!/^https?:\/\//.test(target)) return;      // no dashboard configured: px30-panel takes over
+  try {
+    // no-cors: an opaque answer is enough, a network error means "not reachable yet"
+    await fetch(target, { mode: "no-cors", cache: "no-store" });
+    location.replace(target);
+  } catch (e) {
+    setTimeout(poll, 2000);
+  }
+}
+poll();
+</script></body></html>
