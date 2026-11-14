@@ -94,6 +94,13 @@ while read -r dev start size name; do
 done < "$RUN/partitions.txt"
 log "separate partition images cut from the image"
 
+# eMMC boot areas (4 MiB each, not part of mmcblk1): small, fetched directly
+for b in mmcblk1boot0 mmcblk1boot1; do
+  ensure_root || { log "ERROR: no connection for $b"; exit 1; }
+  timeout 120 $ADB exec-out "dd if=/dev/block/$b bs=1048576 2>/dev/null" > "$RUN/$b.img"
+done
+log "boot areas saved: mmcblk1boot0.img, mmcblk1boot1.img"
+
 # reference hashes on the panel
 log "computing sha256 per partition on the panel"
 $ADB shell 'cd /dev/block; sha256sum mmcblk1boot0 mmcblk1boot1 mmcblk1p*' | tr -d '\r' > "$RUN/sha256-panel.txt"
