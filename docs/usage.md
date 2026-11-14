@@ -198,3 +198,19 @@ px30-radio status             # radio module
 journalctl -t kiosk-cog       # browser log
 sudo px30-agent-setup         # MQTT setup on the command line
 ```
+
+### Screen and touch over SSH
+
+To see and operate the screen without touching it (for example while the
+touch cable is unplugged to reach the micro-USB connector):
+
+```sh
+ssh admin@<panel> sudo px30-screenshot > screen.png       # what the panel shows, as PNG
+ssh admin@<panel> sudo px30-touch tap 240 120              # x y in screen pixels (0..479)
+ssh admin@<panel> sudo px30-touch swipe 240 400 240 150    # [ms], default 300
+ssh admin@<panel> sudo px30-touch long 240 240             # long press [ms], default 800
+```
+
+`px30-touch` creates a virtual touchscreen (uinput) for each gesture, so a
+call takes about a second. `px30-screenshot` reads the scanout buffer of
+plane 0 (black while the backlight is off is still the real content).

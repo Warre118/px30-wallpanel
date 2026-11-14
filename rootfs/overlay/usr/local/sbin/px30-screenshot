@@ -1,0 +1,62 @@
+#!/usr/bin/python3
+"""Screenshot of what the panel shows (the scanout buffer of plane 0) as PNG.
+
+    sudo px30-screenshot [file.png]          (default: PNG on stdout)
+    ssh admin@<panel> sudo px30-screenshot > shot.png
+
+Stdlib only (see tools/fbshot.py). Needs root: DRM hands out buffer
+handles only to root/DRM master.
+"""
+import fcntl, mmap, os, re, struct, subprocess, sys, zlib
+
+GETFB = 0xC01C64AD          # DRM_IOCTL_MODE_GETFB
+MAP_DUMB = 0xC01064B3       # DRM_IOCTL_MODE_MAP_DUMB
+PRIME_TO_FD = 0xC00C642D    # DRM_IOCTL_PRIME_HANDLE_TO_FD
+STATE = "/sys/kernel/debug/dri/0/state"
+
+
+def scanout_fb():
+    if not os.path.exists(STATE):
+        subprocess.run(["mount", "-t", "debugfs", "none", "/sys/kernel/debug"], check=False)
+    m = re.search(r"plane-0\n(?:\t[^\n]*\n)*?\tfb=(\d+)", open(STATE).read())
+    if not m or m.group(1) == "0":
+        sys.exit("px30-screenshot: no framebuffer on plane 0 (screen off?)")
+    return int(m.group(1))
+
+
+fd = os.open("/dev/dri/card0", os.O_RDWR)
+buf = bytearray(struct.pack("7I", scanout_fb(), 0, 0, 0, 0, 0, 0))
+fcntl.ioctl(fd, GETFB, buf)
+_, w, h, pitch, bpp, depth, handle = struct.unpack("7I", buf)
+if bpp != 32:
+    sys.exit(f"px30-screenshot: {bpp} bpp not supported (XRGB8888 only)")
+try:
+    m = bytearray(struct.pack("IIQ", handle, 0, 0))
+    fcntl.ioctl(fd, MAP_DUMB, m)
+    mm = mmap.mmap(fd, pitch * h, mmap.MAP_SHARED, mmap.PROT_READ, offset=struct.unpack("IIQ", m)[2])
+except OSError:
+    # buffer imported from the GPU (Mesa, dma-buf): export and map that
+    p = bytearray(struct.pack("IIi", handle, os.O_CLOEXEC, -1))
+    fcntl.ioctl(fd, PRIME_TO_FD, p)
+    mm = mmap.mmap(struct.unpack("IIi", p)[2], pitch * h, mmap.MAP_SHARED, mmap.PROT_READ)
+data = mm[:]
+
+# XRGB little-endian = B,G,R,X per pixel -> RGB rows with filter byte 0
+raw = bytearray()
+for y in range(h):
+    row = data[y * pitch: y * pitch + w * 4]
+    rgb = bytearray(w * 3)
+    rgb[0::3], rgb[1::3], rgb[2::3] = row[2::4], row[1::4], row[0::4]
+    raw += b"\0" + rgb
+
+
+def chunk(t, d):
+    return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+
+
+png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+       + chunk(b"IDAT", zlib.compress(bytes(raw), 6)) + chunk(b"IEND", b""))
+if len(sys.argv) > 1 and sys.argv[1] != "-":
+    open(sys.argv[1], "wb").write(png)
+else:
+    sys.stdout.buffer.write(png)

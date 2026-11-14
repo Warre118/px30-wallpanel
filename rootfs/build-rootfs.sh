@@ -132,7 +132,8 @@ mmdebstrap \
     chmod 755 "$R/usr/local/bin/kiosk-start" "$R/usr/local/bin/proximity-wake.py" "$R/usr/local/sbin/reboot-android" \
       "$R/usr/local/sbin/usb-gadget-ncm" "$R/usr/local/sbin/panel-diag" "$R/usr/local/sbin/px30-ctl" \
       "$R/usr/local/sbin/px30-radio" "$R/usr/local/sbin/px30-agent-setup" "$R/usr/local/sbin/px30-update" \
-      "$R/usr/local/bin/px30-agent.py" "$R/etc/update-motd.d/50-px30" "$R/usr/local/sbin/px30-panel" "$R/usr/local/sbin/px30-ssh-prepare"
+      "$R/usr/local/bin/px30-agent.py" "$R/etc/update-motd.d/50-px30" "$R/usr/local/sbin/px30-panel" "$R/usr/local/sbin/px30-ssh-prepare" \
+      "$R/usr/local/sbin/px30-screenshot" "$R/usr/local/sbin/px30-touch"
     # agent + radio files (uploaded, not in the overlay)
     chown -R 0:0 "$R/usr/share/px30-radio" "$R/usr/share/doc/px30-agent" "$R/usr/local/bin/px30-agent.py" \
       "$R/usr/local/sbin/px30-update" "$R/etc/sudoers.d/30-px30-agent" "$R/etc/systemd/system/px30-agent.service" \
