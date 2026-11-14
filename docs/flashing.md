@@ -118,6 +118,34 @@ itself.
 4. The panel boots Debian (about 12 s) and opens the setup screen. See
    [usage.md](usage.md).
 
+### Without a USB cable (from Android over Wi-Fi)
+
+The rescue mode has no Wi-Fi, but it can install a release that Android
+left on the eMMC. With adb over the network (port 5555) and the backup of
+step 1 done:
+
+```sh
+bash tools/px30-android-autoinstall.sh <release-dir> <panel-ip>:5555 [hostname] --reboot
+```
+
+- Writes the release as a tar (`px30-autoinstall/`, with `PAYLOAD.sha256`
+  and the optional hostname) raw into Android's `stback` partition, and
+  `px30-rescue.img` into `recovery`; both are read back and compared.
+  `stback` is a Smatek backup partition Android does not mount: **the eMMC
+  backup holds the only copy of it**.
+- `--reboot` runs `adb reboot recovery`. The rescue mode finds the payload
+  (old layout + `px30-autoinstall/` at the start of `stback`), checks every
+  sha256 **before** writing anything, shows a 30 s countdown (stop it with
+  `ssh root@10.55.0.1 px30-rescue hold` over USB), repartitions as in
+  step 3, writes **rootfs_b** (the payload lies inside the future
+  rootfs_a), boot, recovery, the factory copy and the hostname, and reboots
+  into Debian. About 10 minutes in total.
+- The release needs a way onto the network: Wi-Fi baked in
+  (`WIFI_SSID`/`WIFI_PSK`) or the setup hotspot; SSH with `SSH_PUBKEY`.
+- If anything fails the panel stays in rescue mode, which is reachable over
+  USB only; the bootloader is never touched.
+- `px30-rescue autoinstall [--now]` runs the same steps by hand.
+
 ## 4. Updates (A/B over Wi-Fi)
 
 ```sh

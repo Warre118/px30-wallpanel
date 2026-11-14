@@ -17,6 +17,7 @@
 #   px30-rescue write-part boot|recovery < image
 #   px30-rescue put-factory NAME         < file            (into factory fs)
 #   px30-rescue repartition --yes        (old Android layout -> PX30 layout)
+#   px30-rescue autoinstall [--now]      (payload in Android's stback, see below)
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 . /lib/px30-state.sh
 set -o pipefail 2>/dev/null
@@ -167,6 +168,60 @@ do_finish_layout() {
 	sfdisk -l "$disk" 2>/dev/null | tail -n 16
 }
 
+# Install without a USB cable (tools/px30-android-autoinstall.sh): Android
+# writes a tar "px30-autoinstall/{release files, PAYLOAD.sha256, hostname}" raw
+# into its stback partition and reboots into this rescue image. stback (Android
+# sectors 5883904..7981055) lies inside the future rootfs_a, so the payload
+# survives the repartition and the system goes to rootfs_b.
+AI_DIR=px30-autoinstall
+ai_present() { # -> AI_START/AI_COUNT (MiB) of the payload on the old layout
+	px30_part rootfs_a >/dev/null && return 1
+	a=$(px30_part stback) || return 1
+	[ "$(dd if="$a" bs=512 count=1 2>/dev/null | head -c ${#AI_DIR})" = "$AI_DIR" ] || return 1
+	s=$(cat "/sys/class/block/${a#/dev/}/start") n=$(cat "/sys/class/block/${a#/dev/}/size")
+	[ $((s % 2048)) = 0 ] && [ $((n % 2048)) = 0 ] || return 1
+	AI_START=$((s / 2048)) AI_COUNT=$((n / 2048))
+}
+ai_get() { # member -> stdout (by absolute offset: still valid after the repartition)
+	dd if=/dev/mmcblk0 bs=1048576 skip=$AI_START count=$AI_COUNT 2>/dev/null | tar -xOf - "$AI_DIR/$1"
+}
+
+do_autoinstall() { # [--now]
+	ai_present || die "no autoinstall payload (or the eMMC already has the PX30 layout)"
+	say "Checking the install payload ..."
+	ai_get PAYLOAD.sha256 > /tmp/ai.sha256 && [ -s /tmp/ai.sha256 ] || die "payload: no PAYLOAD.sha256"
+	while read -r sum f; do
+		[ "$(ai_get "$f" | sha256sum | cut -d' ' -f1)" = "$sum" ] || die "payload: $f damaged"
+		say "  $f OK"
+	done < /tmp/ai.sha256
+	grep -q ' px30-rootfs.img.zst$' /tmp/ai.sha256 || die "payload: no rootfs"
+	if [ "$1" != --now ]; then
+		n=30
+		while [ $n -gt 0 ] && [ ! -e /tmp/hold ]; do
+			screen "Automatic install of $(ai_get VERSION)" "Starts in $n s: replaces Android." "" "Stop: ssh ... px30-rescue hold"
+			sleep 1; n=$((n - 1))
+		done
+		[ -e /tmp/hold ] && die "autoinstall stopped (hold)"
+	fi
+	screen "Installing $(ai_get VERSION) ..." "Do not power off."
+	(do_repartition --yes) || die "repartition"
+	ai_get px30-rootfs.img.zst | do_write_rootfs b || exit 1
+	ai_get px30-boot.img | do_write_part boot || exit 1
+	ai_get px30-rescue.img | do_write_part recovery || exit 1
+	for m in px30-rootfs.img.zst:rootfs.img.zst px30-boot.img:boot.img px30-rescue.img:recovery.img \
+	         VERSION:VERSION SHA256SUMS:SHA256SUMS; do
+		ai_get "${m%%:*}" | do_put_factory "${m#*:}" || exit 1
+	done
+	h=$(ai_get hostname 2>/dev/null | head -n 1)
+	if [ -n "$h" ]; then
+		mkdir -p /mnt/data && mount -t ext4 "$(need data)" /mnt/data || die "data mount"
+		echo "$h" > /mnt/data/hostname; umount /mnt/data
+	fi
+	slot=b; tries=0; fallback=; action=; rescues=0; state_save
+	bcb_clear
+	say "Autoinstall done (rootfs_b${h:+, hostname $h})."
+}
+
 do_status() {
 	state_load; state_show
 	echo "reason: $(cat /run/rescue-reason 2>/dev/null)"
@@ -286,7 +341,12 @@ pid1() {
 		;;
 	*)
 		if [ "$action" = rescue ]; then action=; state_save; fi
-		screen "Reason: $reason" "Waiting for commands."
+		if ai_present; then
+			(do_autoinstall) && { say "Rebooting ..."; sleep 3; reboot -f; }
+			screen "Automatic install FAILED." "Android may be gone: install over USB," "see docs/flashing.md"
+		else
+			screen "Reason: $reason" "Waiting for commands."
+		fi
 		;;
 	esac
 	while :; do sleep 3600; done        # PID 1 never exits
@@ -305,5 +365,6 @@ write-part) do_write_part "$@" ;;
 put-factory) do_put_factory "$@" ;;
 repartition) do_repartition "$@" ;;
 finish-layout) do_finish_layout ;;
+autoinstall) do_autoinstall "$@" ;;
 *) sed -n '2,25p' "$0"; exit 1 ;;
 esac
