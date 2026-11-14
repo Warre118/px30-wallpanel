@@ -39,6 +39,17 @@ class Result:
     info: dict
 
 
+def _fresh_home(work):
+    """A clean HOME per build. ZAP keeps its template registry in ~/.zap and
+    reuses it across runs: after a 2025.6.2 build, a 2026.6.1 build generated
+    zap-event.c from the 2025.6.2 templates (no `(void)endpoint;`, so
+    -Werror=unused-parameter failed). Nothing in HOME may outlive a build."""
+    home = os.path.join(work, "home")
+    shutil.rmtree(home, ignore_errors=True)
+    os.makedirs(home)
+    return home
+
+
 def _one_gbl(outdir):
     files = sorted(glob.glob(os.path.join(outdir, "*.gbl")))
     if len(files) != 1:
@@ -108,7 +119,7 @@ class SfbBackend:
                 "--build-dir", os.path.join(checkout, "build"),
                 "--sdk", sdk, "--toolchain", gcc]
         run(argv, cwd=checkout, timeout=3 * 3600,
-            env=dict(os.environ, HOME=os.environ.get("HOME", "/tmp"), SILABS_FIRMWARE_BUILD_CONTAINER="1"))
+            env=dict(os.environ, HOME=_fresh_home(work), SILABS_FIRMWARE_BUILD_CONTAINER="1"))
         artifact = _one_gbl(out)
         meta = gbl.read_metadata(artifact)
         version = gbl.firmware_version(fw, meta)
@@ -161,7 +172,8 @@ class GsdkBackend:
         env = dict(os.environ, SDK=sdk, GCC_DIR=gcc, BAUD=str(spec.get("baudrate", 115200)),
                    T=silabs,
                    SLC_TOOL_PATH=":".join(Toolset.adapter_packs()),
-                   ZIGBEE_DIR=os.path.join(self.app_root, "zigbee"), TMPDIR=work)
+                   ZIGBEE_DIR=os.path.join(self.app_root, "zigbee"), TMPDIR=work,
+                   HOME=_fresh_home(work))
         # slc runs the SDK's Jinja template generators with `python3` from PATH:
         # that must be the adapter pack's (it has jinja2), not Debian's or the
         # venv's. The zigbee/ scripts call slc directly, past updater/bin/slc.
