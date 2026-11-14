@@ -56,6 +56,25 @@ registers. Patch 0001 adds the exact sequence as its own compatible.
 In the DT the reset must be `GPIO_ACTIVE_HIGH`: the ST7701 driver inverts it
 itself.
 
+## Microphones
+
+- Two PDM MEMS microphones on the SoC PDM controller (`pdm@ff0a0000`):
+  CLK1 on GPIO3_C7, data on SDI1 (GPIO3_D0), two channels that differ (most
+  likely one mic per clock edge). SDI0/2/3 are not connected.
+- Mainline `px30.dtsi` has no PDM node; the board DT adds it. SDI1 is
+  channels 2-3 of a four-channel capture; `asound.conf` ("mic") picks them.
+  `rockchip,path-map = <1 0 2 3>` did not work: the PATH fields of
+  `PDM_CLK_CTRL` read back as 0 during capture (not investigated further;
+  the driver resets the controller in `hw_params`).
+- The RK809 codec input is **not** a microphone: the vendor DT sets
+  `adc-for-loopback`, i.e. the codec ADC records the speaker signal as echo
+  reference. Recording from it gives the playback (electrically) and no room
+  sound.
+- Level: speech around -50 dBFS raw. `asound.conf` puts a softvol ("Mic", -10 to
+  +30 dB) in front, set to +24 dB at boot by `px30-audio.service`.
+- Card order is not fixed with two cards: ALSA config and services address the
+  cards by name (`rk809`, `pdmmic`).
+
 ## Proximity sensor
 
 - Android polls every 200 ms. The IRQ is not used.

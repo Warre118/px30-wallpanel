@@ -151,5 +151,5 @@ Still to separate:
   showing the new IP on screen as a fallback. A captive-portal window was
   dropped: on the phone it trapped the user on the hotspot.
 - Signed system updates from GitHub releases (`px30-update`).
-- Microphone (PDM) and a voice satellite.
+- A voice satellite (the PDM microphones work, see hardware.md).
 - Device tree aliases for stable serial names.

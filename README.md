@@ -33,7 +33,7 @@ Tested on one panel (ST-PX30-T6E, 2021 board). Other Smatek PX30 variants
 | Backlight | PWM, auto-off after inactivity, wake on proximity or touch |
 | Sensors | Sensortek STK3x1x proximity + ambient light (mainline `stk3310`) |
 | Wi-Fi | RTL8723DS (rtw88); the only network interface |
-| Audio | speaker via the RK809 codec |
+| Audio | speaker via the RK809 codec; two PDM microphones (ALSA `mic`, default capture) |
 | Thread | TYZS13 module as OpenThread RCP + otbr-agent on the panel |
 | USB | CDC-NCM gadget on the micro-USB OTG port: `ssh admin@10.55.0.1`; rescue mode: `ssh root@10.55.0.1` without a password |
 | System | A/B updates over Wi-Fi, fallback after 3 failed boots, rescue mode, reinstall, factory reset |
@@ -44,7 +44,6 @@ Tested on one panel (ST-PX30-T6E, 2021 board). Other Smatek PX30 variants
 | Does not work / untested | |
 |---|---|
 | Bluetooth | **does not work, and probably never did.** The firmware download completes, but the chip's HCI layer hangs afterwards. See [docs/development-notes.md](docs/development-notes.md#bluetooth). |
-| Microphone | not set up (PDM microphone, probably present) |
 | Radio flashing | flashing another stack or version on the module (`px30-radio switch`, `use --flash`, the module update in HA) **does not work yet**. Choosing between stacks without flashing works |
 | Zigbee | the EmberZNet NCP firmware builds, but has not run on the panel (needs the flashing above) |
 | Radio module | first flash of the bootloader-capable RCP needs **SWD** (a cheap debug probe); see [docs/radio.md](docs/radio.md) |

@@ -142,6 +142,52 @@
 			sound-dai = <&i2s1_2ch>;
 		};
 	};
+
+	/*
+	 * PANEL: the microphones are PDM MEMS mics on the SoC PDM controller
+	 * (CLK1 = GPIO3_C7, SDI1 = GPIO3_D0, two channels), not on the RK809:
+	 * the vendor DT uses the codec ADC only as echo reference
+	 * ("adc-for-loopback"). SDI0/2/3 are not connected.
+	 */
+	pdm: pdm@ff0a0000 {
+		compatible = "rockchip,px30-pdm";
+		reg = <0x0 0xff0a0000 0x0 0x1000>;
+		clocks = <&cru SCLK_PDM>, <&cru HCLK_PDM>;
+		clock-names = "pdm_clk", "pdm_hclk";
+		dmas = <&dmac 24>;
+		dma-names = "rx";
+		resets = <&cru SRST_PDM>;
+		reset-names = "pdm-m";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pdm_clk1 &pdm_sdi1>;
+		/*
+		 * No rockchip,path-map: with <1 0 2 3> the PATH fields of
+		 * PDM_CLK_CTRL read back as 0 during capture (all paths on the
+		 * unconnected SDI0). With the default mapping SDI1 is channels 2-3
+		 * of a four-channel capture; asound.conf ("mic") picks those two.
+		 */
+		#sound-dai-cells = <0>;
+	};
+
+	dmic_codec: dmic-codec {
+		compatible = "dmic-codec";
+		num-channels = <4>;
+		#sound-dai-cells = <0>;
+	};
+
+	pdm-sound {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "pdm-mic";
+		simple-audio-card,format = "pdm";
+
+		simple-audio-card,cpu {
+			sound-dai = <&pdm>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&dmic_codec>;
+		};
+	};
 };
 
 &cpu0 {
