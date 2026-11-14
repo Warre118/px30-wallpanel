@@ -86,6 +86,18 @@ if data=$(px30_part data); then
 			chown "$k" $d/kiosk/share
 			mount --bind $d/kiosk/share /newroot/home/kiosk/.local/share
 		fi
+		# time zone and Wi-Fi country from the setup page; anything odd is ignored
+		tz=$(cat $d/timezone 2>/dev/null)
+		case "$tz" in
+		''|/*|*..*|*[!A-Za-z0-9_+/-]*) ;;
+		*) [ -f "/newroot/usr/share/zoneinfo/$tz" ] && ln -sf "/usr/share/zoneinfo/$tz" /newroot/etc/localtime ;;
+		esac
+		cc=$(cat $d/wifi-country 2>/dev/null)
+		case "$cc" in
+		[A-Z][A-Z]) mkdir -p /newroot/etc/modprobe.d
+			printf 'options cfg80211 ieee80211_regdom=%s\n' "$cc" > /newroot/etc/modprobe.d/px30-wifi-country.conf ;;
+		*) rm -f /newroot/etc/modprobe.d/px30-wifi-country.conf ;;
+		esac
 		# machine-id and hostname live on /data; first boot: px30-boot-ok saves them
 		[ -s $d/machine-id ] && cp $d/machine-id /newroot/etc/machine-id
 		[ -s $d/hostname ] && cp $d/hostname /newroot/etc/hostname

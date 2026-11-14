@@ -18,7 +18,7 @@
   .head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
   .state { font-size:13px; color:var(--mut); }
   label { display:block; font-size:14px; color:var(--mut); margin:10px 0 4px; }
-  input[type=text], input[type=password], input[type=url], input[type=number], textarea {
+  input[type=text], input[type=password], input[type=url], input[type=number], textarea, select {
     width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; background:transparent; color:var(--fg); font:inherit; }
   textarea { font:13px/1.3 ui-monospace,monospace; min-height:70px; }
   .chk { display:flex; gap:8px; align-items:center; margin-top:10px; font-size:15px; }
@@ -66,6 +66,19 @@
         <input id="password" type="password" autocomplete="current-password">
         <div class="chk"><input id="insecure" type="checkbox"><label for="insecure">Don't verify Home Assistant's certificate (self-signed)</label></div>
       </div>
+    </div>
+
+    <!-- name and region -->
+    <div class="card">
+      <div class="head"><h2>Name and region</h2><span class="state" id="reg_state"></span></div>
+      <label for="hostname">Panel name (on the network: <i>name</i>.local)</label>
+      <input id="hostname" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" maxlength="63">
+      <p class="mut hide" id="host_hint">MQTT is set up: Home Assistant shows the panel as a new device under the new name.</p>
+      <label for="tz">Time zone (clock on the dashboard and in the logs)</label>
+      <select id="tz"></select>
+      <label for="country">Wi-Fi country (allowed channels and transmit power)</label>
+      <select id="country"></select>
+      <p class="mut" id="reg_hint"></p>
     </div>
 
     <!-- MQTT -->
@@ -212,6 +225,7 @@ function fill(d) {
   const se = d.sensors || {};
   $("#sens_prox").checked = se.proximity !== false; $("#sens_light").checked = se.light_sensor !== false;
   radioFill(d.radio || {}, true);
+  regionFill(d.region || {});
   show($("#pinbox"), false); show($("#sections"), true);
 }
 
@@ -242,6 +256,54 @@ function radioNeedsFlash() {
 }
 function radioFlashHint() { show($("#radio_flash"), radioNeedsFlash()); }
 document.querySelectorAll("input[name=radio]").forEach(i => i.onchange = radioFlashHint);
+
+// name and region: what is stored on the panel, else suggestions from this phone
+let G = {}, countryTouched = false;
+const HOST_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+function regionFill(g) {
+  G = g;
+  $("#hostname").value = g.hostname || "";
+  const phoneTz = (Intl.DateTimeFormat().resolvedOptions().timeZone || "").replace(/^Etc\/UTC$/, "UTC");
+  const zones = g.zones || [], tzSel = $("#tz"), cSel = $("#country");
+  tzSel.innerHTML = ""; cSel.innerHTML = "";
+  for (const z of zones) tzSel.add(new Option(z.replace(/_/g, " "), z));
+  cSel.add(new Option("Not set (world: the most restrictive)", ""));
+  for (const [code, name] of g.countries || []) cSel.add(new Option(`${name} (${code})`, code));
+  const hints = [];
+  let tz = g.timezone;
+  if (!g.timezone_set && zones.includes(phoneTz) && phoneTz !== g.timezone) { tz = phoneTz; hints.push("time zone"); }
+  tzSel.value = tz;
+  let cc = g.country;
+  if (!cc) {
+    const lang = ((navigator.language || "").split("-")[1] || "").toUpperCase();
+    const known = c => (g.countries || []).some(x => x[0] === c);
+    cc = (g.zone_country || {})[tz] || (known(lang) ? lang : "");
+    if (cc) hints.push("Wi-Fi country");
+  }
+  cSel.value = cc;
+  $("#reg_hint").textContent = hints.length ? `Suggested from this phone: ${hints.join(" and ")}. Saved with the form.` : "";
+  $("#reg_state").textContent = `${g.hostname}.local, ${g.timezone}${g.country ? ", " + g.country : ""}`;
+  show($("#host_hint"), false);
+}
+$("#tz").onchange = () => {
+  // without a stored or hand-picked country, follow the time zone
+  const cc = (G.zone_country || {})[$("#tz").value];
+  if (!G.country && !countryTouched && cc) $("#country").value = cc;
+};
+$("#country").onchange = () => { countryTouched = true; };
+$("#hostname").oninput = () => {
+  const h = $("#hostname").value.trim().toLowerCase();
+  show($("#host_hint"), !!D.mqtt_host && h !== G.hostname);
+};
+function regionChanges() {
+  const r = {}, h = $("#hostname").value.trim().toLowerCase();
+  if (h !== (G.hostname || "")) r.hostname = h;
+  const tz = $("#tz").value;
+  if (tz && (tz !== G.timezone || !G.timezone_set)) r.timezone = tz;
+  const cc = $("#country").value;
+  if (cc && cc !== G.country) r.country = cc;
+  return r;
+}
 
 async function load() {
   try { fill(await call("/api/defaults")); }
@@ -291,6 +353,10 @@ $("#f1").onsubmit = async ev => {
   const b = { dashboard: $("#dashboard").value.trim(), relogin: $("#relogin").checked,
     username: $("#username").value, password: $("#password").value, insecure: $("#insecure").checked,
     mqtt_change: mqttChanged() };
+  const reg = regionChanges();
+  if (reg.hostname !== undefined && !HOST_RE.test(reg.hostname))
+    return msg($("#m1"), "Panel name: 1-63 characters, lowercase letters, digits and '-' (not at the start or end).", true);
+  if (Object.keys(reg).length) b.region = reg;
   if (b.mqtt_change) Object.assign(b, { mqtt_host: $("#mqtt_host").value.trim(), mqtt_port: $("#mqtt_port").value,
     mqtt_tls: $("#mqtt_tls").checked, mqtt_user: $("#mqtt_user").value, mqtt_password: $("#mqtt_password").value });
   const mode = document.querySelector("input[name=sshmode]:checked").value;

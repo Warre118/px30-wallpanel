@@ -39,7 +39,8 @@ PKGS=(
   systemd-resolved systemd-timesyncd systemd-zram-generator
   sudo less nano procps
   # network
-  iwd firmware-realtek wireless-regdb openssh-server
+  # iw: Wi-Fi country set from the setup page (iw reg set), without a reboot
+  iwd iw firmware-realtek wireless-regdb openssh-server
   # kiosk: Cog/WPE on DRM + Mesa (Panfrost)
   # libgles2: without libGLESv2.so.2 WPEWebProcess crashes on every page (black screen)
   cog wpewebkit-driver libgl1-mesa-dri libgles2 libegl1 fonts-dejavu-core
