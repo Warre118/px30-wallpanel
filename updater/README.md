@@ -19,7 +19,7 @@ report an update; installing it is one button on each device.
 |---|---|---|---|
 | `zigbee_ncp` | EmberZNet NCP (EZSP): Zigbee coordinator radio for ZHA / Zigbee2MQTT | yes | yes |
 | `openthread_rcp` | OpenThread RCP: Thread radio for a border router, i.e. the radio side of **Matter over Thread** | yes | yes |
-| `zigbee_router` | stand-alone Zigbee router (repeater), no host | prepared, **off** | yes, **experimental** |
+| `zigbee_router` | stand-alone Zigbee router (repeater), no host | yes, **experimental** | yes, **experimental** |
 
 "Matter" here always means the Thread radio. Matter itself runs on the host
 (Home Assistant's Matter server + a Thread border router); there is no Matter
@@ -37,10 +37,10 @@ About the router:
   bootloader. See [docs/radio.md](../docs/radio.md).
 - **TubesZB:** [`devices/tubeszb-mgm210/zigbee_router.yaml`](devices/tubeszb-mgm210/zigbee_router.yaml)
   derives a router from Nabu Casa's ZBT-2 router by stripping that board's LEDs,
-  accelerometer and button. It is `enabled: false` in `config.yaml` until a
-  first manual build (`fwpipe run --device tubeszb-mgm210 --firmware
-  zigbee_router`). The ESP32 can always put the radio in its bootloader with a
-  GPIO, so the way back is safe.
+  accelerometer and button, and drops the ZBT-2's boot-time join: the TubesZB's
+  ESP32 starts network steering over the CLI (a "join" button on its web page).
+  Test-built on SDK 2026.6.1 (beta channel). The ESP32 can always put the radio
+  in its bootloader with a GPIO, so the way back is safe.
 - A router joins an existing Zigbee network as a repeater. The device stops
   being a coordinator; its own network is gone.
 
@@ -260,4 +260,4 @@ Not tested yet:
 - Flashing: the TubesZB from its web page, the panel with `px30-radio switch`,
   and the router on the panel.
 - OpenThread RCP on the TubesZB hardware.
-- The TubesZB router (never built).
+- The TubesZB router on hardware (it builds; never flashed).

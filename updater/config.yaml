@@ -47,9 +47,9 @@ devices:
       zigbee_router:
         # Stand-alone Zigbee router (repeater). Derived from the ZBT-2 router,
         # which is an MG24 board with LEDs and an accelerometer; the overlay
-        # strips those. NOT built yet: turn on after a first manual test build
-        # (fwpipe run --device tubeszb-mgm210 --firmware zigbee_router).
-        enabled: false
+        # strips those. Test-built 2026-11-13 (builder v2026.09.17-beta2, SDK
+        # 2026.6.1); not flashed on hardware yet. The ESP32 starts the join.
+        enabled: true
         experimental: true
         base: manifests/nabucasa/zbt2/zbt2_router.yaml
         overlay: devices/tubeszb-mgm210/zigbee_router.yaml

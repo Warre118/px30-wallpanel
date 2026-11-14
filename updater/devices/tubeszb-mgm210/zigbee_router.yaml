@@ -5,11 +5,15 @@
 # (src/zigbee_router) with its CLI on the UART, including the command that
 # returns to the Gecko bootloader.
 #
-# EXPERIMENTAL, never built or flashed. Disabled in config.yaml until a manual
-# test build works. Known unknowns:
-#  - zbt2_router_callbacks is removed; if the application needs callbacks from
-#    it the link fails and a small replacement component is needed
-#  - the ZCL configuration (LED clusters) is kept as is
+# Also removed: the ZBT-2's ZCL configuration (a colour light on endpoint 1, for
+# its LED ring) and the clusters behind it; the router uses the plain one of
+# src/zigbee_router (Basic + Identify), so it does not show up as a light.
+# zbt2_router_callbacks started network steering at boot; without it the router
+# only joins on the CLI command `plugin network-steering start 0`, which the
+# ESP32 sends (button "Zigbee router: join network"). A router that was on a
+# network rejoins it by itself after a restart.
+#
+# EXPERIMENTAL: builds (2026-11-13, Simplicity SDK 2026.6.1), not flashed yet.
 # Way back: the ESP32 button "Zigbee radio to bootloader (flash mode)" always
 # works on the TubesZB, whatever the firmware.
 
@@ -21,6 +25,8 @@ set:
     SL_IOSTREAM_USART_VCOM_FLOW_CONTROL_TYPE: usartHwFlowControlNone
     # SDK bug on the MGM210 (see the Yellow manifests)
     SL_CLOCK_MANAGER_PCLK_DIVIDER: SL_CLOCK_MANAGER_PCLK_DIV_MIN
+  # the ZBT-2 light configuration: use the project's own (Basic + Identify)
+  config_file: null
 
 remove_sdk_extensions: [nabucasa_hardware]
 remove_components:
@@ -32,6 +38,15 @@ remove_components:
   - qma6100p_driver
   - zbt2_reset_button
   - zbt2_router_callbacks
+  # ZCL clusters for the ZBT-2 LED ring (the router itself needs none of them)
+  - zigbee_color_control_server
+  - zigbee_level_control
+  - zigbee_on_off
+  - zigbee_zll_on_off_server
+  - zigbee_zll_identify_server
+  - zigbee_zll_level_control_server
+  - zigbee_scenes
+  - zigbee_zll_scenes_server
 remove_defines:
   - SL_SPIDRV_EUSART_WS2812_.*
   - WS2812_.*
