@@ -512,6 +512,18 @@
 		/* interrupts = <RK_PC0 IRQ_TYPE_EDGE_FALLING>; */
 	};
 
+	/*
+	 * PANEL: second sensor variant. The vendor DT lists both "stk3x3x" at 0x47
+	 * and "stk3a5x" at 0x46; on some boards only 0x46 answers, with chip id
+	 * 0x51 (STK3335 in mainline stk3310). Whichever is not fitted simply
+	 * fails to probe (no ACK on the bus).
+	 */
+	light-sensor@46 {
+		compatible = "sensortek,stk3335";
+		reg = <0x46>;
+		vdd-supply = <&vcc3v3_sys>;
+	};
+
 	/* PANEL: unknown device at 0x3c (Android driver "smatek,tp") - not described */
 };
 
