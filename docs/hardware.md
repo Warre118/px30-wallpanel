@@ -17,7 +17,7 @@ from the PCB.
 | Backlight | PWM1, 25 µs period | `pwm-backlight` |
 | Touch | Hynitron CST226SE, I2C1 0x5a, IRQ GPIO0_B5 (gpio0-13), reset GPIO0_B4 | `hynitron_cstxxx` + patch |
 | PMIC | Rockchip RK809 on I2C0 0x20 (regulators, RTC, codec, clkout) | `rk808` / `rk817` codec |
-| Audio | RK809 codec, one speaker | works (`Playback Mux` = SPK) |
+| Audio | RK809 codec, one speaker; codec MCLK on GPIO2_C3 (`i2s1_2ch_mclk`) | works (`Playback Mux` = SPK) |
 | Microphone | probably a PDM microphone (Android enables `pdm@ff0a0000`) | not set up |
 | Proximity / light | Sensortek STK3x1x, I2C2 0x47, IRQ GPIO3_C0 (polled) | `stk3310` |
 | Wi-Fi + BT | RTL8723DS: Wi-Fi on SDIO, BT on UART1 (H5) | Wi-Fi: `rtw88_8723ds`; BT: not working |

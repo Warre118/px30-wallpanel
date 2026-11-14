@@ -260,7 +260,12 @@
 		interrupt-parent = <&gpio0>;
 		interrupts = <RK_PA7 IRQ_TYPE_LEVEL_LOW>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&pmic_int>;
+		/*
+		 * i2s1_2ch_mclk: GPIO2_C3 carries the codec MCLK (SCLK_I2S1_OUT).
+		 * Android muxes it in its codec node; nothing in mainline does
+		 * otherwise, and without MCLK the speaker only crackles or distorts.
+		 */
+		pinctrl-0 = <&pmic_int>, <&i2s1_2ch_mclk>;
 		system-power-controller;
 		wakeup-source;
 		/* clkout2 = 32k LPO for the RTL8723DS (WiFi+BT); Android: ext_clock = <&rk809 1> */
