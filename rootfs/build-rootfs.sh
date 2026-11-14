@@ -170,7 +170,8 @@ mmdebstrap \
       systemd-networkd usb-gadget px30-boot-ok.timer px30-agent px30-audio px30-panel
     # otbr-agent (OTBR_DIST): installed but NOT enabled; px30-radio (switch/apply)
     # runs exactly one radio stack, the choice lives on /data
-    if [ -x "$R/usr/sbin/otbr-agent" ]; then chown 0:0 "$R/usr/sbin/otbr-agent" "$R/usr/sbin/ot-ctl"; chmod 755 "$R/usr/sbin/otbr-agent" "$R/usr/sbin/ot-ctl"; fi
+    # (sync-in also puts the host uid on /usr/sbin itself)
+    if [ -x "$R/usr/sbin/otbr-agent" ]; then chown 0:0 "$R/usr/sbin" "$R/usr/sbin/otbr-agent" "$R/usr/sbin/ot-ctl"; chmod 755 "$R/usr/sbin" "$R/usr/sbin/otbr-agent" "$R/usr/sbin/ot-ctl"; fi
     # display diagnostics only in the debug phase (PANEL_DIAG=1)
     '"$( [ "${PANEL_DIAG:-0}" = 1 ] && echo 'chroot "$R" systemctl enable panel-diag; mkdir -p "$R/var/log/journal"; printf "[Journal]\nStorage=persistent\nSystemMaxUse=64M\n" > "$R/etc/systemd/journald.conf.d/zz-debug-persistent.conf"' )"'
     # no automatic apt runs on a kiosk with 1 GB RAM and eMMC; no daily dpkg
