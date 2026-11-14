@@ -11,7 +11,7 @@ rootfs/overlay/usr/share/kiosk/bootanim.png
 rootfs/overlay/usr/lib/firmware/
 
 # --- legacy prototype (superseded by rootfs/overlay/usr/local/bin/proximity-wake.py) ---
-kiosk/
+/kiosk/
 
 # --- build output and binaries ---
 *.img

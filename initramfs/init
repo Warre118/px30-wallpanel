@@ -88,7 +88,11 @@ if data=$(px30_part data); then
 		fi
 		# machine-id and hostname live on /data; first boot: px30-boot-ok saves them
 		[ -s $d/machine-id ] && cp $d/machine-id /newroot/etc/machine-id
-		[ -s $d/hostname ] && cp $d/hostname /newroot/etc/hostname
+		if [ -s $d/hostname ]; then
+			cp $d/hostname /newroot/etc/hostname
+			# /etc/hosts from the image names px30-panel (sudo resolves its own name)
+			sed -i "s/^127\.0\.1\.1[[:space:]].*/127.0.1.1\t$(cat $d/hostname)/" /newroot/etc/hosts
+		fi
 	else
 		log "data partition did not mount"
 	fi
