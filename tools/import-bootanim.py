@@ -49,6 +49,7 @@ for i, n in enumerate(part1):
     im = load(n)
     im.save(os.path.join(theme, f"f{i}.png"), optimize=True)
     frames.append(im)
+os.makedirs(os.path.dirname(apng), exist_ok=True)  # kiosk/ is not in git
 frames[0].save(apng, save_all=True, append_images=frames[1:], duration=1000 // fps, loop=0, optimize=True)
 
 script = os.path.join(theme, "px30-wallpanel.script")
